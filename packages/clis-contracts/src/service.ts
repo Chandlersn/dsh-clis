@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis';
 
 import type { StrategyBoundary } from './boundary';
 import type { CausalClassification } from './classification';
+import type { DetectOptions, FeedbackRequest, FeedbackSignal } from './feedback';
 import type { CausalProblem, ClassifyOptions } from './problem';
 import type { CandidatePath, ExecutePathOptions, ExecutionResult } from './strategy';
 
@@ -11,6 +12,7 @@ import type { CandidatePath, ExecutePathOptions, ExecutionResult } from './strat
  */
 export const CAUSAL_CLASSIFIER_SERVICE = 'clis.causalClassifier';
 export const CAUSAL_STRATEGY_SERVICE = 'clis.causalStrategy';
+export const CAUSAL_FEEDBACK_SERVICE = 'clis.causalFeedback';
 
 /** clis-classifier 对外暴露的唯一能力面。 */
 export interface CausalClassifierService {
@@ -66,12 +68,29 @@ export interface StrategyService {
   execute(path: CandidatePath, options: ExecutePathOptions): Promise<ExecutionResult>;
 }
 
+/** clis-feedback 对外暴露的能力面。 */
+export interface FeedbackService {
+  /**
+   * 依据执行结果检测反馈信号、识别类型误判、提出回退建议。
+   *
+   * **不重新判断因果类型**（不调用 classifier）、**不自动执行回退**
+   * （只输出 `suggested_rollback`）、**不修改任何系统状态**。
+   *
+   * @param request — 执行结果 + 当前类型假设（只读）+ 边界。
+   * @param options — 历史轨迹等可选参数。
+   * @returns 反馈信号；畸形输入抛 ClisContractError。
+   */
+  detect(request: FeedbackRequest, options?: DetectOptions): Promise<FeedbackSignal>;
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** 由 clis-classifier 提供；消费方须先 inject 该服务名。 */
     'clis.causalClassifier': CausalClassifierService;
     /** 由 clis-strategy 提供；消费方须先 inject 该服务名。 */
     'clis.causalStrategy': StrategyService;
+    /** 由 clis-feedback 提供；消费方须先 inject 该服务名。 */
+    'clis.causalFeedback': FeedbackService;
   }
 }
 

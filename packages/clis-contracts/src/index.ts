@@ -81,8 +81,29 @@ export type {
   ExecutePathOptions,
 } from './strategy';
 
+export {
+  FEEDBACK_SIGNAL_TYPES,
+  ROLLBACK_KINDS,
+} from './feedback';
+export type {
+  FeedbackSignalType,
+  RollbackKind,
+  SuggestedRollback,
+  FeedbackEvidence,
+  FeedbackSignal,
+  FeedbackRequest,
+  CausalClassificationRef,
+  FeedbackBoundary,
+  FeedbackHistory,
+  DetectOptions,
+} from './feedback';
+
 export { ClisContractError } from './errors';
 export type { ClisContractErrorCode, ClisContractErrorDetail } from './errors';
 
-export { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from './service';
-export type { CausalClassifierService, StrategyService } from './service';
+export {
+  CAUSAL_CLASSIFIER_SERVICE,
+  CAUSAL_STRATEGY_SERVICE,
+  CAUSAL_FEEDBACK_SERVICE,
+} from './service';
+export type { CausalClassifierService, StrategyService, FeedbackService } from './service';

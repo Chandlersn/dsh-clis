@@ -1,0 +1,14 @@
+{
+  "name": "@clis/clis-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLIS 反馈插件：检测反馈信号、识别类型误判、输出回退建议；不重新分类、不执行回退。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@clis/clis-contracts": "workspace:*",
+    "@deepseek-ai/cordis": "4.0.5"
+  }
+}

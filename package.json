@@ -16,6 +16,7 @@
   "dependencies": {
     "@clis/clis-classifier": "workspace:*",
     "@clis/clis-contracts": "workspace:*",
+    "@clis/clis-feedback": "workspace:*",
     "@clis/clis-strategy": "workspace:*"
   },
   "devDependencies": {
