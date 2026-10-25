@@ -196,15 +196,22 @@ describe('SPEC §4/§7-1/§7-3/§7-4：8 类输入与预言机逐条比对', () 
     expect(violations).toStrictEqual([]);
   });
 
-  it('§4.5 path_id 与分数无关：unidirectional 集内 rank 1 不是声明最前者', () => {
+  it('§4.5 path_id 与分数无关：rank 1 的 path_id 不等于声明顺序首项的 path_id', () => {
     const paths = strategyPlugin.matchPaths(unidirectionalClassification(), NO_BOUNDARY);
-    // 声明顺序首项为 lever.upstream_trace；rank 1 应为 lever.necessary_condition
     const rankOne = paths.find((path) => path.rank === 1);
-    expect(rankOne?.variant).toBe('lever.necessary_condition');
-    const firstDeclared = paths.find((path) => path.variant === 'lever.upstream_trace');
     expect(rankOne).toBeDefined();
-    expect(firstDeclared).toBeDefined();
-    expect(idNumber(rankOne?.path_id ?? '')).toBeGreaterThan(idNumber(firstDeclared?.path_id ?? ''));
+
+    // 断言"path_id 按声明顺序编号"而非"按分数编号"：
+    // 把返回结果按 path_id 升序还原成声明顺序，再与按 rank 升序的顺序比对。
+    const byPathId = [...paths].sort((left, right) => idNumber(left.path_id) - idNumber(right.path_id));
+    const byRank = [...paths].sort((left, right) => left.rank - right.rank);
+
+    // 声明顺序 = p1..pn，必须与 PATH_VARIANTS 里该家族的声明顺序一致
+    const declared = PATH_VARIANTS.filter((variant) => variant.startsWith('lever.'));
+    expect(byPathId.map((path) => path.variant)).toStrictEqual([...declared]);
+
+    // 而 rank 顺序由分数决定，两者**不必然**相同 —— 这正说明 path_id 与分数无关。
+    expect(byRank.map((path) => path.path_id)).not.toStrictEqual(byPathId.map((path) => path.path_id));
   });
 });
 

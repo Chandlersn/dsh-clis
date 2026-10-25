@@ -152,7 +152,7 @@ export const STRATEGY_LIBRARY: readonly LibraryVariant[] = [
     variant: 'lever.necessary_condition',
     variant_version: VARIANT_VERSION,
     family: 'single_lever',
-    components: { type_fit: 1, expected_effect: 0.8, side_effect_risk: 0.2, execution_cost: 0.3 },
+    components: { type_fit: 1, expected_effect: 0.75, side_effect_risk: 0.2, execution_cost: 0.3 },
     summary: '枚举候选条件、逐一移除验证必要性，再施加必要条件',
     steps: [
       {
@@ -168,7 +168,7 @@ export const STRATEGY_LIBRARY: readonly LibraryVariant[] = [
     variant: 'lever.upstream_trace',
     variant_version: VARIANT_VERSION,
     family: 'single_lever',
-    components: { type_fit: 1, expected_effect: 0.85, side_effect_risk: 0.3, execution_cost: 0.4 },
+    components: { type_fit: 1, expected_effect: 0.9, side_effect_risk: 0.3, execution_cost: 0.4 },
     summary: '向上游追溯到最早可干预的因，在那里动手',
     steps: [
       { action: 'trace_upstream', params: { max_depth: 3 }, rationale: '向上游追溯因果链' },

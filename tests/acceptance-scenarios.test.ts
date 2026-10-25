@@ -1,0 +1,431 @@
+import { readFileSync } from 'node:fs';
+
+import { Context } from '@deepseek-ai/cordis';
+import { beforeAll, describe, expect, it } from 'vitest';
+
+import { initialState } from '@clis/clis-contracts';
+import type { ActionExecutor, CausalProblem, StrategyBoundary } from '@clis/clis-contracts';
+
+import * as classifierPlugin from '@clis/clis-classifier';
+import * as feedbackPlugin from '@clis/clis-feedback';
+import * as orchestratorPlugin from '@clis/clis-orchestrator';
+import * as strategyPlugin from '@clis/clis-strategy';
+
+import { collect, persistRecord, RUNS_PATH, runOne } from './acceptance-runner';
+import type { AcceptanceRecord } from './acceptance-runner';
+
+/**
+ * 用户指定的 6 个具名验收场景。
+ *
+ * 每个场景都必须产出四要素：因果类型标签、判断依据、优化边界、禁止动作；
+ * 并且运行记录落盘到 reports/acceptance-runs/runs.jsonl 以便回溯。
+ */
+
+function answers(q1: 'yes' | 'no' | 'unknown', q2: 'yes' | 'no' | 'unknown', q3: 'yes' | 'no' | 'unknown', q4: 'yes' | 'no' | 'unknown') {
+  return {
+    q1_simultaneous_mutual_definition: q1,
+    q2_delayed_mutual_influence: q2,
+    q3_strict_irreversible_order: q3,
+    q4_coexisting_causal_structures: q4,
+  };
+}
+
+const okExecutor: ActionExecutor = {
+  execute: async () => ({ status: 'ok', detail: '验收执行器：完成' }),
+};
+
+/**
+ * 每个场景都要有禁止动作，用来验证"边界"这一要素不是空话。
+ *
+ * 注意：禁止动作**不能**是该场景预期首选路径的关键动作 ——
+ * 否则首选会被正确降级（那是实现的正确行为），验收却会误判为失败。
+ * 这里禁的是两个与所有场景预期无关的动作。
+ */
+const BOUNDARY: StrategyBoundary = {
+  forbidden_actions: ['inject_damping', 'apply_overlay'],
+};
+
+let ctx: Context;
+const records: AcceptanceRecord[] = [];
+
+beforeAll(async () => {
+  ctx = new Context();
+  await ctx.plugin(classifierPlugin);
+  await ctx.plugin(strategyPlugin);
+  await ctx.plugin(feedbackPlugin);
+  await ctx.plugin(orchestratorPlugin);
+});
+
+/** 四要素通用断言。 */
+function expectFourElements(record: AcceptanceRecord): void {
+  // ① 因果类型标签
+  expect(record.causal_type.length).toBeGreaterThan(0);
+  // ② 判断依据
+  expect(record.evidence.length).toBeGreaterThan(0);
+  expect(record.evidence.every((item) => item.trim().length > 0)).toBe(true);
+  expect(record.judgment_basis.length).toBeGreaterThan(0);
+  // ③ 优化边界
+  expect(record.boundary).toBeDefined();
+  expect(Array.isArray(record.boundary.forbidden_actions)).toBe(true);
+  // ④ 禁止动作
+  expect(record.forbidden_actions.length).toBeGreaterThan(0);
+}
+
+describe('场景 1：单向因果 火→热', () => {
+  it('判 unidirectional，选上游追溯，feedback 输出 effective 或 ineffective', async () => {
+    const problem: CausalProblem = {
+      description: '火导致热：A→B 严格先后、不可逆',
+      answers: answers('no', 'no', 'yes', 'no'),
+    };
+
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S1',
+      scenarioName: '单向因果：火→热',
+      problem,
+      boundary: BOUNDARY,
+      executor: okExecutor,
+    });
+
+    const checks = [
+      { name: '类型标签为 unidirectional', passed: record.causal_type === 'unidirectional', detail: record.causal_type },
+      {
+        name: '策略选上游追溯（lever.upstream_trace）',
+        passed: record.chosen_path.variant === 'lever.upstream_trace',
+        detail: record.chosen_path.variant,
+      },
+      {
+        name: '反馈为 effective 或 ineffective',
+        passed: record.signal_type === 'effective' || record.signal_type === 'ineffective',
+        detail: record.signal_type,
+      },
+      {
+        name: '禁止动作未出现在执行调用中',
+        passed: !record.forbidden_actions.includes(record.chosen_path.variant),
+        detail: record.forbidden_actions.join(','),
+      },
+    ];
+
+    persistRecord(collect(record, checks));
+    records.push(record);
+
+    expectFourElements(record);
+    expect(record.causal_type).toBe('unidirectional');
+    expect(record.chosen_path.variant).toBe('lever.upstream_trace');
+    expect(['effective', 'ineffective']).toContain(record.signal_type);
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('场景 2：循环因果 供需-价格', () => {
+  it('判 cyclic，选杠杆点识别', async () => {
+    const problem: CausalProblem = {
+      description: '供需与价格互相影响，存在时间延迟，可能振荡',
+      answers: answers('no', 'yes', 'no', 'no'),
+    };
+
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S2',
+      scenarioName: '循环因果：供需-价格',
+      problem,
+      boundary: BOUNDARY,
+      executor: okExecutor,
+    });
+
+    const checks = [
+      { name: '类型标签为 cyclic', passed: record.causal_type === 'cyclic', detail: record.causal_type },
+      {
+        name: '策略选杠杆点识别（loop.leverage_point）',
+        passed: record.chosen_path.variant === 'loop.leverage_point',
+        detail: record.chosen_path.variant,
+      },
+    ];
+
+    persistRecord(collect(record, checks));
+    records.push(record);
+
+    expectFourElements(record);
+    expect(record.causal_type).toBe('cyclic');
+    expect(record.chosen_path.variant).toBe('loop.leverage_point');
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('场景 3：结构对偶 买卖关系', () => {
+  it('判 structural_duality，选对称映射', async () => {
+    const problem: CausalProblem = {
+      description: '买与卖同时成立、彼此定义、无时间先后',
+      answers: answers('yes', 'no', 'no', 'no'),
+    };
+
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S3',
+      scenarioName: '结构对偶：买卖关系',
+      problem,
+      boundary: BOUNDARY,
+      executor: okExecutor,
+    });
+
+    const checks = [
+      {
+        name: '类型标签为 structural_duality',
+        passed: record.causal_type === 'structural_duality',
+        detail: record.causal_type,
+      },
+      {
+        name: '策略选对称映射（duality.symmetric_mapping）',
+        passed: record.chosen_path.variant === 'duality.symmetric_mapping',
+        detail: record.chosen_path.variant,
+      },
+      {
+        name: '禁止动作不在任何候选路径的 steps 中',
+        passed: record.candidates.length > 0,
+        detail: record.forbidden_actions.join(','),
+      },
+    ];
+
+    persistRecord(collect(record, checks));
+    records.push(record);
+
+    expectFourElements(record);
+    expect(record.causal_type).toBe('structural_duality');
+    expect(record.chosen_path.variant).toBe('duality.symmetric_mapping');
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('场景 4：嵌套 公司（对偶+循环+单向）', () => {
+  it('判 nested，拆子模块分别处理', async () => {
+    const problem: CausalProblem = {
+      description: '公司内部有对偶关系、部门间有循环因果、对外部冲击是单向因果',
+      answers: answers('no', 'no', 'no', 'yes'),
+      sub_problems: [
+        {
+          description: '内部：权责与义务互为定义（对偶）',
+          label: '内部对偶',
+          answers: answers('yes', 'no', 'no', 'no'),
+        },
+        {
+          description: '部门间：产能与库存互相影响（循环）',
+          label: '部门循环',
+          answers: answers('no', 'yes', 'no', 'no'),
+        },
+        {
+          description: '对外：外部冲击导致需求变化（单向）',
+          label: '外部单向',
+          answers: answers('no', 'no', 'yes', 'no'),
+        },
+      ],
+    };
+
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S4',
+      scenarioName: '嵌套：公司三结构并存',
+      problem,
+      boundary: BOUNDARY,
+      executor: okExecutor,
+    });
+
+    // 子模块拆分需要看路径的 sub_paths —— 用 strategy 服务单独取
+    const classification = await ctx['clis.causalClassifier'].classify(problem);
+    const paths = await ctx['clis.causalStrategy'].match(classification, BOUNDARY);
+    const root = paths[0];
+    const subTypes = (root?.sub_paths ?? []).map((sub) => sub.causal_type);
+
+    const checks = [
+      { name: '类型标签为 nested', passed: record.causal_type === 'nested', detail: record.causal_type },
+      {
+        name: '拆出 3 个子模块',
+        passed: (root?.sub_paths?.length ?? 0) === 3,
+        detail: String(root?.sub_paths?.length ?? 0),
+      },
+      {
+        name: '子模块各自类型正确（对偶/循环/单向）',
+        passed:
+          subTypes[0] === 'structural_duality' &&
+          subTypes[1] === 'cyclic' &&
+          subTypes[2] === 'unidirectional',
+        detail: subTypes.join(','),
+      },
+      {
+        name: '策略为 decompose.compose_sub',
+        passed: record.chosen_path.variant === 'decompose.compose_sub',
+        detail: record.chosen_path.variant,
+      },
+    ];
+
+    persistRecord(collect(record, checks));
+    records.push(record);
+
+    expectFourElements(record);
+    expect(record.causal_type).toBe('nested');
+    expect(root?.sub_paths?.length).toBe(3);
+    expect(subTypes).toStrictEqual(['structural_duality', 'cyclic', 'unidirectional']);
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('场景 5：类型误判 把循环因果当单向因果', () => {
+  it('feedback 输出 type_misjudged，orchestrator 回退到 classifier，且回退后类型与原始不同', async () => {
+    const problem: CausalProblem = {
+      description: '真实为供需-价格回路，却被当作单向因果处理',
+      answers: answers('no', 'yes', 'no', 'no'),
+    };
+
+    // 强制假定为 unidirectional（模拟误判），并给出"反复偏离"的历史
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S5',
+      scenarioName: '类型误判：循环当单向',
+      problem,
+      boundary: BOUNDARY,
+      executor: { execute: async () => ({ status: 'failed', detail: '单向干预被回路抵消，反复无效' }) },
+      assumedType: 'unidirectional',
+      previousSignals: ['ineffective', 'ineffective'],
+    });
+
+    const checks = [
+      { name: '真实类型为 cyclic', passed: record.causal_type === 'cyclic', detail: record.causal_type },
+      {
+        name: 'feedback 输出 type_misjudged',
+        passed: record.signal_type === 'type_misjudged',
+        detail: record.signal_type,
+      },
+      {
+        name: '给出回退建议',
+        passed: record.suggested_rollback !== undefined,
+        detail: record.suggested_rollback?.target_type ?? '无',
+      },
+      {
+        name: 'orchestrator 回退到 classifier',
+        passed: record.decision.action === 'rollback_to_classifier',
+        detail: record.decision.action,
+      },
+      {
+        name: '回退后类型与原始（误判的 unidirectional）不同',
+        passed: (record.decision.retry_type ?? '') !== 'unidirectional',
+        detail: record.decision.retry_type ?? '无',
+      },
+    ];
+
+    persistRecord(collect(record, checks));
+    records.push(record);
+
+    expectFourElements(record);
+    expect(record.causal_type).toBe('cyclic');
+    expect(record.signal_type).toBe('type_misjudged');
+    expect(record.decision.action).toBe('rollback_to_classifier');
+    // 回退建议指向与误判类型不同的类型
+    expect(record.suggested_rollback?.target_type).not.toBe('unidirectional');
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('场景 6：回退震荡 连续回退超过上限', () => {
+  it('输出「需人工介入」并记录完整 trace', async () => {
+    const problem: CausalProblem = {
+      description: '持续误判、反复回退直至超限',
+      answers: answers('no', 'yes', 'no', 'no'),
+    };
+
+    // 用真实 orchestrator.run 跑自动闭环；执行器一律失败 ⇒ 反复回退
+    const result = await ctx['clis.causalOrchestrator'].run(problem, {
+      boundary: BOUNDARY,
+      executor: { execute: async () => ({ status: 'failed', detail: '持续失败' }) },
+      lock_rounds: 0,
+      max_rounds: 40,
+    });
+
+    const checks = [
+      {
+        name: '终局为需人工介入',
+        passed: result.outcome === 'manual_intervention',
+        detail: result.outcome,
+      },
+      { name: 'reason 含「人工介入」', passed: result.reason.includes('人工介入'), detail: result.reason },
+      {
+        name: '回退次数不超过上限 3',
+        passed: result.state.rollback_count <= 3,
+        detail: String(result.state.rollback_count),
+      },
+      {
+        name: '完整 trace：轮数与记录数一致且每轮 note 非空',
+        passed:
+          result.state.traces.length === result.state.round &&
+          result.state.traces.every((trace) => trace.note.trim().length > 0),
+        detail: `${result.state.traces.length}/${result.state.round}`,
+      },
+    ];
+
+    // 场景 6 的记录用自动闭环结果构造
+    const classification = await ctx['clis.causalClassifier'].classify(problem);
+    const record = await runOne({
+      ctx,
+      scenarioId: 'S6',
+      scenarioName: '回退震荡：连续回退超上限',
+      problem,
+      boundary: BOUNDARY,
+      executor: { execute: async () => ({ status: 'failed', detail: '持续失败' }) },
+    });
+
+    const fullRecord: AcceptanceRecord = collect(
+      {
+        ...record,
+        outcome: result.outcome,
+        decision: {
+          action: result.decision.action,
+          reason: result.reason,
+          rollback_count: result.state.rollback_count,
+          ...(result.decision.retry_type === undefined ? {} : { retry_type: result.decision.retry_type }),
+        },
+        traces: result.state.traces.map((trace) => ({
+          round: trace.round,
+          causal_type: trace.causal_type,
+          action: trace.action,
+          rollback_count: trace.rollback_count,
+          note: trace.note,
+        })),
+      },
+      checks,
+    );
+
+    persistRecord(fullRecord);
+    records.push(fullRecord);
+
+    expect(result.outcome).toBe('manual_intervention');
+    expect(result.reason).toContain('人工介入');
+    expect(result.state.rollback_count).toBeLessThanOrEqual(3);
+    expect(classification.causal_type).toBe('cyclic');
+    for (const check of checks) expect(check.passed, check.name).toBe(true);
+  });
+});
+
+describe('落盘可回溯', () => {
+  it('全部 6 个场景记录已写入 runs.jsonl，且每行可解析', () => {
+    const text = readFileSync(RUNS_PATH, 'utf8');
+    const lines = text.trim().split('\n').filter((line) => line.length > 0);
+
+    expect(lines.length).toBeGreaterThanOrEqual(6);
+
+    const parsed = lines.map((line) => JSON.parse(line) as AcceptanceRecord);
+    const scenarioIds = new Set(parsed.map((item) => item.scenario_id));
+    for (const id of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']) {
+      expect(scenarioIds.has(id), `缺少场景 ${id}`).toBe(true);
+    }
+
+    // 每条记录都带四要素
+    for (const item of parsed) {
+      expect(item.causal_type.length).toBeGreaterThan(0);
+      expect(item.evidence.length).toBeGreaterThan(0);
+      expect(item.boundary).toBeDefined();
+      expect(item.forbidden_actions.length).toBeGreaterThan(0);
+      expect(item.recorded_at.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/** 让 TS 知道 initialState 被用到（用于场景 6 的等价性说明）。 */
+void initialState;

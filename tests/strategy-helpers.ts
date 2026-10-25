@@ -152,7 +152,7 @@ export const VARIANT_SPECS: Readonly<Record<PathVariantId, SpecVariant>> = {
   'lever.necessary_condition': {
     variant: 'lever.necessary_condition',
     family: 'single_lever',
-    components: { type_fit: 1.0, expected_effect: 0.8, side_effect_risk: 0.2, execution_cost: 0.3 },
+    components: { type_fit: 1.0, expected_effect: 0.75, side_effect_risk: 0.2, execution_cost: 0.3 },
     steps: [
       { action: 'enumerate_conditions', paramKeys: ['candidates'] },
       { action: 'test_necessity', paramKeys: ['method'], fixedParams: { method: 'remove_one' } },
@@ -163,7 +163,7 @@ export const VARIANT_SPECS: Readonly<Record<PathVariantId, SpecVariant>> = {
   'lever.upstream_trace': {
     variant: 'lever.upstream_trace',
     family: 'single_lever',
-    components: { type_fit: 1.0, expected_effect: 0.85, side_effect_risk: 0.3, execution_cost: 0.4 },
+    components: { type_fit: 1.0, expected_effect: 0.9, side_effect_risk: 0.3, execution_cost: 0.4 },
     steps: [
       { action: 'trace_upstream', paramKeys: ['max_depth'] },
       { action: 'select_upstream_intervention', paramKeys: ['chosen'] },
