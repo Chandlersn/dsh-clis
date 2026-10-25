@@ -47,6 +47,15 @@ pnpm run test       # vitest run，全量测试
 pnpm run check      # 两条一起跑
 ```
 
+### 本机环境注意（会踩到的坑）
+
+1. **宿主重启后 `pnpm` 不在 PATH 里**：用绝对路径 `D:\nvm\v22.23.3\pnpm.cmd`，或先 `$env:Path = "D:\nvm\v22.23.3;" + $env:Path`。
+2. **vitest 启动报 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`**：宿主自带 safe-delete 中间层会拦截对
+   `node_modules/.vitest-cache` 的批量清理（条目数 > 50 即要求确认）。处理方式：删掉该缓存目录后重跑
+   （`Remove-Item node_modules\.vitest-cache -Recurse -Force`），**不要**为此关闭删除保护。
+3. **PowerShell 管道会吞掉退出码**：`pnpm ... | Select-Object` 之后 `$LASTEXITCODE` 不可信，判定闸门时用
+   `pnpm exec vitest run > $null 2>&1; $LASTEXITCODE`。
+
 ## 目录
 
 ```
@@ -60,8 +69,8 @@ reports/                    验证报告
 ## 当前进度
 
 - [x] 步骤 0：`packages/clis-contracts`
-- [ ] 步骤 1：`clis-classifier`
-- [ ] 步骤 2：`clis-strategy`
-- [ ] 步骤 3：`clis-feedback`
+- [x] 步骤 1：`clis-classifier`（145 例验收通过）
+- [x] 步骤 2：`clis-strategy`（264 例全绿；验收判定由 Lead 做出，独立性限制见报告）
+- [x] 步骤 3：`clis-feedback`（286 例全绿；实现完成，待独立验收）
 - [ ] 步骤 4：`clis-orchestrator`
 - [ ] 步骤 5：端到端验收
