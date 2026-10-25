@@ -1,24 +1,30 @@
 import { build } from 'esbuild';
 import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /**
  * 把 CLIS 打成宿主可加载的 bundle。
  *
- * 产出**四个独立入口**，对应面板上四个可各自开关的组件：
+ * 产出**五个**入口：
+ *   index.js（包根，聚合四组件；Loader 靠它判定整包合法性）
  *   clis-classifier.js / clis-strategy.js / clis-feedback.js / clis-orchestrator.js
  *
- * 用 `splitting: true` 让四个入口共享同一份 cordis 与 contracts chunk ——
- * 否则会打出四份 cordis 副本（体积翻四倍，且 Service 类身份分散）。
+ * 三个关键决策：
  *
- * 为什么 cordis 一起内联：profile 安装的 bundle 以 junction 指向 default-workspace，
- * realpath 下没有宿主的 node_modules/@deepseek-ai/*，裸导入必然 ERR_MODULE_NOT_FOUND。
- * 实测内联出的 Service 仍能向宿主 Context 注册服务（注册走 ctx.reflect.provide，
- * 用的是宿主传进来的 ctx），因此服务对宿主可见、卸载也干净。
+ * 1) **必须有包根入口**：Loader 解析 bundle 时先按 `exports["."]` 判断包是否可装载。
+ *    缺包根时整包被跳过，表现为四个子行都停在 `absent`、面板显示关闭且打不开。
+ *
+ * 2) **cordis 不内联，走 shim**：alias 到 cordis-shim.ts，运行时用 createRequire
+ *    从宿主安装目录加载那一份。内联会造出第二个 Service 类
+ *    （实测 instanceof 宿主Service === false），服务虽注册进 ctx 却不被承认。
+ *
+ * 3) **splitting**：五个入口共享同一份 chunk，避免多份副本。
  */
 mkdirSync('bundle', { recursive: true });
 
 await build({
   entryPoints: {
+    index: 'packages/clis-plugin/src/index.ts',
     'clis-classifier': 'packages/clis-classifier/src/index.ts',
     'clis-strategy': 'packages/clis-strategy/src/index.ts',
     'clis-feedback': 'packages/clis-feedback/src/index.ts',
@@ -32,6 +38,9 @@ await build({
   outdir: 'bundle',
   tsconfig: 'tsconfig.build.json',
   logLevel: 'warning',
+  alias: {
+    '@deepseek-ai/cordis': resolve('packages/clis-plugin/src/cordis-shim.ts'),
+  },
 });
 
-console.log('bundle/ written: 4 entries + shared chunks');
+console.log('bundle/ written: root + 4 component entries + shared chunks (cordis via host shim)');

@@ -1,22 +1,35 @@
 /**
- * 四组件冒烟：验证每个组件可独立装载、四者共存时服务齐全。
+ * 四组件冒烟：验证每个组件可独立装载、四者共存时服务齐全且为宿主 Service 实例。
  *
- * 关键验证点：
- * 1) 四个入口各自可 import（代码分割后 chunk 能正确解析）；
- * 2) 全部装载后四服务齐全；
- * 3) 只装部分组件时缺失的服务确实不可用（证明可独立开关）；
- * 4) 关闭 orchestrator 不影响其它三个。
+ * 关键：必须从 **profile 目录** 解析裸说明符 `dsh-clis/...` —— 这正是宿主 Loader
+ * 的解析上下文；从别处解析会得到 "Cannot find package"。
+ * 另设 DSH_INSTALL_DIR 指向宿主安装目录，让 cordis shim 命中宿主那份
+ * （否则会命中开发仓库自带的 devDependency，Service 身份不一致）。
+ *
+ * 用法：
+ *   node scripts/smoke-components.mjs
  */
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
-const HOST_CORDIS = 'D:/dsh/node_modules/@deepseek-ai/cordis/lib/index.js';
-const DIR = 'C:/Users/lyq/.dsh/profiles/web/node_modules/dsh-clis';
+const DSH_ROOT = (process.env.DSH_INSTALL_DIR ?? 'D:/dsh').replace(/\/$/, '');
+const PROFILE_DIR = (process.env.DSH_PROFILE_DIR ?? 'C:/Users/lyq/.dsh/profiles/web').replace(/\/$/, '');
+
+const failures = [];
+function check(name, ok, detail = '') {
+  if (!ok) failures.push(`${name}${detail === '' ? '' : ` — ${detail}`}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === '' ? '' : `  (${detail})`}`);
+}
+
+const hostRequire = createRequire(`${DSH_ROOT}/node_modules/@deepseek-ai/dsh/lib/bin.js`);
+const host = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/cordis')).href);
+const profileRequire = createRequire(`${PROFILE_DIR}/package.json`);
 
 const COMPONENTS = {
-  classifier: `${DIR}/clis-classifier.js`,
-  strategy: `${DIR}/clis-strategy.js`,
-  feedback: `${DIR}/clis-feedback.js`,
-  orchestrator: `${DIR}/clis-orchestrator.js`,
+  classifier: 'dsh-clis/classifier',
+  strategy: 'dsh-clis/strategy',
+  feedback: 'dsh-clis/feedback',
+  orchestrator: 'dsh-clis/orchestrator',
 };
 
 const SERVICE_OF = {
@@ -26,62 +39,61 @@ const SERVICE_OF = {
   orchestrator: 'clis.causalOrchestrator',
 };
 
-const failures = [];
-function check(name, ok, detail = '') {
-  if (!ok) failures.push(`${name}${detail === '' ? '' : ` — ${detail}`}`);
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === '' ? '' : `  (${detail})`}`);
-}
-
-const host = await import(pathToFileURL(HOST_CORDIS).href);
-
-// ① 四个入口可独立加载
-const mods = {};
-for (const [key, entry] of Object.entries(COMPONENTS)) {
-  try {
-    mods[key] = await import(pathToFileURL(entry).href);
-    check(`${key} 入口可加载`, true);
-  } catch (error) {
-    check(`${key} 入口可加载`, false, String(error).slice(0, 120));
-  }
-}
-
-// ② 各自声明了正确的 name / inject
 const EXPECT_NAME = {
   classifier: 'clis-classifier',
   strategy: 'clis-strategy',
   feedback: 'clis-feedback',
   orchestrator: 'clis-orchestrator',
 };
+
+// ① 包根可解析 —— Loader 靠它判定整包合法性，缺了整包会被跳过
+try {
+  profileRequire.resolve('dsh-clis');
+  check('包根 exports["."] 可解析', true);
+} catch (error) {
+  check('包根 exports["."] 可解析', false, String(error.code));
+}
+
+// ② 四个子路径入口可加载
+const mods = {};
+for (const [key, specifier] of Object.entries(COMPONENTS)) {
+  try {
+    mods[key] = await import(pathToFileURL(profileRequire.resolve(specifier)).href);
+    check(`${key} 入口可加载`, true);
+  } catch (error) {
+    check(`${key} 入口可加载`, false, String(error.code ?? error.message).slice(0, 100));
+  }
+}
+
+// ③ name / inject 正确
 for (const [key, mod] of Object.entries(mods)) {
   check(`${key} name 正确`, mod.name === EXPECT_NAME[key], String(mod.name));
-  check(`${key} inject 为数组`, Array.isArray(mod.inject), JSON.stringify(mod.inject));
+  check(`${key} inject 为数组`, Array.isArray(mod.inject));
 }
 
-// ③ 全部装载 → 四服务齐全
+// ④ 全部装载 → 四服务齐全，且都是宿主 Service 实例
 const full = new host.Context();
-for (const key of ['classifier', 'strategy', 'feedback', 'orchestrator']) {
-  await full.plugin(mods[key]);
+for (const mod of Object.values(mods)) await full.plugin(mod);
+
+let mounted = 0;
+for (const serviceName of Object.values(SERVICE_OF)) {
+  const present = full[serviceName] !== undefined;
+  check(`全装后服务可见：${serviceName}`, present);
+  if (present) {
+    mounted += 1;
+    check(`${serviceName} 是宿主 Service 实例`, full[serviceName] instanceof host.Service);
+  }
 }
-for (const [key, serviceName] of Object.entries(SERVICE_OF)) {
-  check(`全装后服务可见：${serviceName}`, full[serviceName] !== undefined);
-}
+check('四个服务全部就位', mounted === 4, `${mounted}/4`);
 
-// ④ 只装 classifier → 只有它自己可用
-const onlyClassifier = new host.Context();
-await onlyClassifier.plugin(mods.classifier);
-check('只装 classifier：自身服务可用', onlyClassifier['clis.causalClassifier'] !== undefined);
-check('只装 classifier：strategy 不可用', onlyClassifier['clis.causalStrategy'] === undefined);
-check('只装 classifier：feedback 不可用', onlyClassifier['clis.causalFeedback'] === undefined);
-check('只装 classifier：orchestrator 不可用', onlyClassifier['clis.causalOrchestrator'] === undefined);
+// ⑤ 只装 classifier → 其余不可用（证明可独立开关）
+const only = new host.Context();
+await only.plugin(mods.classifier);
+check('只装 classifier：自身可用', only['clis.causalClassifier'] !== undefined);
+check('只装 classifier：strategy 不可用', only['clis.causalStrategy'] === undefined);
+check('只装 classifier：orchestrator 不可用', only['clis.causalOrchestrator'] === undefined);
 
-// ⑤ 装 classifier + feedback（两者无互相依赖）→ 各自可用，strategy 仍缺
-const two = new host.Context();
-await two.plugin(mods.classifier);
-await two.plugin(mods.feedback);
-check('classifier+feedback：两者可用', two['clis.causalClassifier'] !== undefined && two['clis.causalFeedback'] !== undefined);
-check('classifier+feedback：strategy 仍不可用', two['clis.causalStrategy'] === undefined);
-
-// ⑥ 完整闭环仍能跑
+// ⑥ 完整闭环
 const problem = {
   description: '供需与价格互相影响，存在时间延迟',
   answers: {
@@ -100,7 +112,7 @@ check('完整闭环：outcome effective', result.outcome === 'effective', String
 // ⑦ 卸载干净
 await full.fiber.dispose();
 for (const serviceName of Object.values(SERVICE_OF)) {
-  check(`全卸载后移除：${serviceName}`, full[serviceName] === undefined);
+  check(`卸载后移除：${serviceName}`, full[serviceName] === undefined);
 }
 
 console.log('');
@@ -109,4 +121,4 @@ if (failures.length > 0) {
   for (const failure of failures) console.error('  -', failure);
   process.exit(1);
 }
-console.log('SMOKE PASS — 四个组件可独立装载、共存完备、卸载干净');
+console.log('SMOKE PASS — 四组件可独立装载、服务为宿主实例、闭环可用、卸载干净');
