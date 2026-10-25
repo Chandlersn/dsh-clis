@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "paths": {
+      "@clis/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
+      "@clis/clis-classifier": ["./packages/clis-classifier/src/index.ts"],
+      "@clis/clis-strategy": ["./packages/clis-strategy/src/index.ts"],
+      "@clis/clis-feedback": ["./packages/clis-feedback/src/index.ts"],
+      "@clis/clis-orchestrator": ["./packages/clis-orchestrator/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts"]
+}
