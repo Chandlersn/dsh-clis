@@ -3,6 +3,13 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { StrategyBoundary } from './boundary';
 import type { CausalClassification } from './classification';
 import type { DetectOptions, FeedbackRequest, FeedbackSignal } from './feedback';
+import type {
+  OrchestratorDecision,
+  OrchestratorOptions,
+  OrchestratorRound,
+  OrchestratorState,
+  RoundTrace,
+} from './orchestrator';
 import type { CausalProblem, ClassifyOptions } from './problem';
 import type { CandidatePath, ExecutePathOptions, ExecutionResult } from './strategy';
 
@@ -13,6 +20,7 @@ import type { CandidatePath, ExecutePathOptions, ExecutionResult } from './strat
 export const CAUSAL_CLASSIFIER_SERVICE = 'clis.causalClassifier';
 export const CAUSAL_STRATEGY_SERVICE = 'clis.causalStrategy';
 export const CAUSAL_FEEDBACK_SERVICE = 'clis.causalFeedback';
+export const CAUSAL_ORCHESTRATOR_SERVICE = 'clis.causalOrchestrator';
 
 /** clis-classifier 对外暴露的唯一能力面。 */
 export interface CausalClassifierService {
@@ -83,6 +91,48 @@ export interface FeedbackService {
   detect(request: FeedbackRequest, options?: DetectOptions): Promise<FeedbackSignal>;
 }
 
+/** clis-orchestrator 对外暴露的能力面。 */
+export interface OrchestratorService {
+  /**
+   * 依据本轮的执行结果与反馈信号做出决策。
+   *
+   * orchestrator 自身**无状态**：状态由调用方持有并逐轮传入。
+   * 它只编排（决定继续/换路径/回退/锁定/人工介入），**不含任何判据**。
+   *
+   * @param round — 本轮输入（路径、执行结果、反馈信号、类型假设）。
+   * @param state — 当前闭环状态。
+   * @param options — 回退上限与锁定时长。
+   * @returns 决策与更新后的状态。
+   */
+  decide(
+    round: OrchestratorRound,
+    state: OrchestratorState,
+    options?: OrchestratorOptions,
+  ): Promise<{ decision: OrchestratorDecision; nextState: OrchestratorState }>;
+
+  /**
+   * 便捷入口：把一轮闭环（分类 → 生成路径 → 执行 → 反馈 → 决策）串起来。
+   *
+   * @param problem — 结构化问题。
+   * @param boundary — 策略边界。
+   * @param options — 回退上限、锁定时长与执行器。
+   * @returns 本轮轨迹与决策。
+   */
+  runRound(
+    problem: CausalProblem,
+    boundary: StrategyBoundary,
+    options: OrchestratorRunOptions,
+  ): Promise<{ trace: RoundTrace; decision: OrchestratorDecision; state: OrchestratorState }>;
+}
+
+/** runRound 的依赖：执行器由调用方提供（不是 CLIS 插件）。 */
+export interface OrchestratorRunOptions extends OrchestratorOptions {
+  readonly executor: import('./strategy').ActionExecutor;
+  readonly state?: OrchestratorState;
+  /** 已选定的路径；缺省由 strategy 生成后取第一条可执行路径。 */
+  readonly path?: CandidatePath;
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** 由 clis-classifier 提供；消费方须先 inject 该服务名。 */
@@ -91,6 +141,8 @@ declare module '@deepseek-ai/cordis' {
     'clis.causalStrategy': StrategyService;
     /** 由 clis-feedback 提供；消费方须先 inject 该服务名。 */
     'clis.causalFeedback': FeedbackService;
+    /** 由 clis-orchestrator 提供；消费方须先 inject 该服务名。 */
+    'clis.causalOrchestrator': OrchestratorService;
   }
 }
 

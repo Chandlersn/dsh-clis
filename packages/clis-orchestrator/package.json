@@ -1,0 +1,14 @@
+{
+  "name": "@clis/clis-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLIS 编排插件：串联分类→策略→反馈，执行回退决策与震荡保护。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@clis/clis-contracts": "workspace:*",
+    "@deepseek-ai/cordis": "4.0.5"
+  }
+}

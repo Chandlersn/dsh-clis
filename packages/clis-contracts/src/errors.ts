@@ -6,7 +6,8 @@ export type ClisContractErrorCode =
   | 'INVALID_CLASSIFICATION'
   | 'INVALID_BOUNDARY'
   | 'INVALID_PATH'
-  | 'INVALID_RESULT';
+  | 'INVALID_RESULT'
+  | 'INVALID_STATE';
 
 /** 一条字段级错误说明，便于调用方直接定位。 */
 export interface ClisContractErrorDetail {

@@ -98,6 +98,20 @@ export type {
   DetectOptions,
 } from './feedback';
 
+export {
+  ORCHESTRATOR_ACTIONS,
+  initialState,
+} from './orchestrator';
+export type {
+  OrchestratorAction,
+  RoundTrace,
+  OrchestratorDecision,
+  OscillationState,
+  OrchestratorState,
+  OrchestratorRound,
+  OrchestratorOptions,
+} from './orchestrator';
+
 export { ClisContractError } from './errors';
 export type { ClisContractErrorCode, ClisContractErrorDetail } from './errors';
 
@@ -105,5 +119,12 @@ export {
   CAUSAL_CLASSIFIER_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
   CAUSAL_FEEDBACK_SERVICE,
+  CAUSAL_ORCHESTRATOR_SERVICE,
 } from './service';
-export type { CausalClassifierService, StrategyService, FeedbackService } from './service';
+export type {
+  CausalClassifierService,
+  StrategyService,
+  FeedbackService,
+  OrchestratorService,
+  OrchestratorRunOptions,
+} from './service';

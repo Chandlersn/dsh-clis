@@ -17,6 +17,9 @@ importers:
       '@clis/clis-feedback':
         specifier: workspace:*
         version: link:packages/clis-feedback
+      '@clis/clis-orchestrator':
+        specifier: workspace:*
+        version: link:packages/clis-orchestrator
       '@clis/clis-strategy':
         specifier: workspace:*
         version: link:packages/clis-strategy
@@ -50,6 +53,15 @@ importers:
         version: 4.0.5
 
   packages/clis-feedback:
+    dependencies:
+      '@clis/clis-contracts':
+        specifier: workspace:*
+        version: link:../clis-contracts
+      '@deepseek-ai/cordis':
+        specifier: 4.0.5
+        version: 4.0.5
+
+  packages/clis-orchestrator:
     dependencies:
       '@clis/clis-contracts':
         specifier: workspace:*
