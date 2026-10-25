@@ -126,7 +126,11 @@ clis-strategy **只做策略匹配、候选路径生成、排序与执行**。�
 3. `decompose` 家族（`sub_paths` 存在且非空）：
    - 父自身被阻断或自身某步失败 → 对应的 `blocked` / `failed`，**不执行任何子路径**；
    - 否则先执行父自身步骤，再按序执行每个子路径，结果放进 `sub_results`（顺序与 `sub_paths` 一致）；
-   - 父 `status` 汇总：任一子 `failed` → `failed`；否则任一子 `blocked` → `blocked`；否则 `succeeded`。
+   - 父 `status` 汇总：任一子 `failed` → `failed`；否则任一子 `blocked` → `blocked`；否则 `succeeded`；
+   - **某条子路径失败不阻止其余子路径**（2026-10-25 澄清）：子模块彼此独立，后续子路径照常执行；
+     失败子路径自身的后续步骤按 §6.2 记 `not_attempted`。
+     因此"断言执行器总调用次数"是**不稳定**的判据 —— 请断言各子路径的 `status`、
+     `sub_results` 的长度与顺序、以及"失败/被阻断子路径的步骤确实没被调用"。
 4. **信号不变量**：`signals` 恒非空，**末条恒为 `kind: 'summary'`**（`step_index = -1`、`action = 'summary'`），detail 汇总步骤数与最终状态。每条 `detail` 非空。
 5. `blocked_actions` 反映预检发现的阻断项（去重）。
 6. **不得出现** `rollback` / `suggested_rollback` / `next_action` 之类字段 —— 回退由 orchestrator 决定。
