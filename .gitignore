@@ -3,4 +3,4 @@ node_modules/
 .vite-cache/
 dist/
 coverage/
-*.log
+*.log*.tmpdir/
