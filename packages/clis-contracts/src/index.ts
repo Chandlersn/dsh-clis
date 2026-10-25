@@ -1,7 +1,7 @@
 /**
  * @clis/clis-contracts —— CLIS 共享契约包。
  *
- * 唯一职责：定义类型、四问、输出结构与抽象服务接口。
+ * 唯一职责：定义类型、四问、输出结构、排序公式与抽象服务接口。
  * 不含任何判定逻辑、策略逻辑或反馈逻辑；不 import 任何 CLIS 插件实现。
  */
 
@@ -35,6 +35,7 @@ export {
   ROLLBACK_LIMIT,
   TYPE_LOCK_ROUNDS,
   normalizeConfidence,
+  normalizeScore,
 } from './limits';
 
 export type {
@@ -48,8 +49,40 @@ export type {
 
 export type { CausalProblem, ClassifyOptions } from './problem';
 
+export { blockedReason } from './boundary';
+export type { StrategyBoundary, BlockedAction, BlockedActionReason } from './boundary';
+
+export {
+  STRATEGY_FAMILIES,
+  FAMILY_BY_TYPE,
+  PROBE_FAMILY,
+  PATH_VARIANTS,
+  PATH_SCORE_WEIGHTS,
+  scorePath,
+  ACTION_RESULT_STATUSES,
+  EXECUTION_SIGNAL_KINDS,
+  EXECUTION_STATUSES,
+} from './strategy';
+export type {
+  StrategyFamily,
+  PathVariantId,
+  PathScoreComponents,
+  PathStep,
+  CandidatePath,
+  StrategyMatchOptions,
+  ActionInvocation,
+  ActionResult,
+  ActionResultStatus,
+  ActionExecutor,
+  ExecutionSignal,
+  ExecutionSignalKind,
+  ExecutionResult,
+  ExecutionStatus,
+  ExecutePathOptions,
+} from './strategy';
+
 export { ClisContractError } from './errors';
 export type { ClisContractErrorCode, ClisContractErrorDetail } from './errors';
 
-export { CAUSAL_CLASSIFIER_SERVICE } from './service';
-export type { CausalClassifierService } from './service';
+export { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from './service';
+export type { CausalClassifierService, StrategyService } from './service';

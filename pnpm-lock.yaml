@@ -14,6 +14,9 @@ importers:
       '@clis/clis-contracts':
         specifier: workspace:*
         version: link:packages/clis-contracts
+      '@clis/clis-strategy':
+        specifier: workspace:*
+        version: link:packages/clis-strategy
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
@@ -39,6 +42,15 @@ importers:
 
   packages/clis-contracts:
     dependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.5
+        version: 4.0.5
+
+  packages/clis-strategy:
+    dependencies:
+      '@clis/clis-contracts':
+        specifier: workspace:*
+        version: link:../clis-contracts
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5

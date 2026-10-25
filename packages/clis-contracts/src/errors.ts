@@ -2,7 +2,10 @@
 export type ClisContractErrorCode =
   | 'INVALID_PROBLEM'
   | 'INVALID_ANSWERS'
-  | 'INVALID_OPTIONS';
+  | 'INVALID_OPTIONS'
+  | 'INVALID_CLASSIFICATION'
+  | 'INVALID_BOUNDARY'
+  | 'INVALID_PATH';
 
 /** 一条字段级错误说明，便于调用方直接定位。 */
 export interface ClisContractErrorDetail {

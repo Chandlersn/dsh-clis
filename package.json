@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@clis/clis-classifier": "workspace:*",
-    "@clis/clis-contracts": "workspace:*"
+    "@clis/clis-contracts": "workspace:*",
+    "@clis/clis-strategy": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5",

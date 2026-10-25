@@ -1,0 +1,14 @@
+{
+  "name": "@clis/clis-strategy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLIS 策略插件：按因果类型匹配策略、生成候选路径、排序并执行；不判断类型、不回退。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@clis/clis-contracts": "workspace:*",
+    "@deepseek-ai/cordis": "4.0.5"
+  }
+}
