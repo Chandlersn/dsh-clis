@@ -43,6 +43,12 @@ clis-classifier **只做因果类型判断**。禁止：
 - `answers` 多余的键**忽略**；四个字段必须齐全且为 `'yes' | 'no' | 'unknown'`。
 - `details` 必须给出字段级 `path` / `expected` / `received`。
 
+补充分级规定（2026-10-25 验收补注，消除未规定项）：
+
+- **校验顺序**：`options` 先于 `problem`。两者同时畸形时抛 `INVALID_OPTIONS`。
+- `options` 自身非对象（含 `null`）⇒ `INVALID_OPTIONS`；`max_depth: null` ⇒ `INVALID_OPTIONS`。
+- **整棵树急切校验**：即使根不是 `nested`、或 `max_depth = 0` 导致不递归，深层畸形子问题仍要抛错。
+
 ## 4. 判据规则表（确定性，无随机、无时间依赖）
 
 记号：`Q1..Q4` 指四问作答；`d` = Q1/Q2/Q3 中回答 `yes` 的**不同类型**个数；`unknownCount` = 四问中 `unknown` 的个数。
@@ -65,7 +71,12 @@ clis-classifier **只做因果类型判断**。禁止：
 
 ### 4.1 基础分与实例
 
-基准分 `base = 0.9`，最终 `confidence = normalizeConfidence(base - 0.08 * unknownCount - (R3 ? 0.15 : 0))`。
+最终 `confidence` 分两支（**R4 是固定值，不能由下面的公式导出**）：
+
+- R1 / R2 / R3：`confidence = normalizeConfidence(0.9 - 0.08 * unknownCount - (R3 ? 0.15 : 0))`
+- R4：固定值 —— 四问全 `no` ⇒ `0.4`；含至少一个 `unknown` ⇒ `0.25`
+
+> 修正记录（2026-10-25，独立验收报告 N-4）：本节初版只给了上面那条公式，而表格在 R4 上列的是 0.4 / 0.25 —— 公式与表格自相矛盾。**以表格为准**（实现与验收套件均按表格取 0.4 / 0.25）。此处已改为两支写法，后续实现者不得再按单条公式推导 R4。
 
 | 情形 | unknownCount | confidence | needs_exploration |
 | --- | --- | --- | --- |
@@ -101,7 +112,7 @@ clis-classifier **只做因果类型判断**。禁止：
   - `max_depth` 缺省 `DEFAULT_MAX_DEPTH (3)`。
   - `max_depth = 0` ⇒ 根若为 nested 也直接 `[]`。
 - 子问题自身畸形同样抛 `ClisContractError`。
-- 拆分发生时追加一条 `SUBMODULE` 来源证据，`statement` 含子模块数量与名字。
+- 拆分发生时追加一条 `SUBMODULE` 来源证据，`statement` 含子模块数量与名字；**未发生拆分时不产出该证据**（`max_depth = 0` 亦然）。
 - 非 `nested` 结论时 `sub_modules` 必须**不存在**（`undefined`）。
 
 ## 5. 证据不变量
@@ -109,7 +120,7 @@ clis-classifier **只做因果类型判断**。禁止：
 - `evidence` **恒非空**，且每条 `statement` 都是非空字符串。
 - 每个 `yes` 作答产生一条证据（`source` 为对应 `Qn`，`supports` 为对应类型，`weight = 1`）。
 - R3 触发时额外给出一条 `RULE` 来源的冲突证据。
-- R4 时每个问题各给出一条"作答状态"证据（`supports: 'unknown'`，`weight: 0`）；`description` 非空时再给出一条描述证据（截断至 120 字符，超出补 `…`）。
+- R4 时每个问题各给出一条"作答状态"证据（`supports: 'unknown'`，`weight: 0`）；`description` **含非空白字符**（即 `description.trim().length > 0`）时再给出一条描述证据（按 UTF-16 码元截断至 120 字符，超出补 `…`）。
 - 末尾恒有一条 `RULE` 来源的"主判据"证据，`statement` 含所触发的主规则，`weight = 最终 confidence`。
 - `weight` 范围 `[0, 1]`。
 
