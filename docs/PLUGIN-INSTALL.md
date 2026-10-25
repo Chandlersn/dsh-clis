@@ -2,85 +2,95 @@
 
 ## 现状
 
-已作为本地常驻插件安装到 `web` profile：
+已作为本地常驻插件安装到 `web` profile，包含**四个可独立开关的组件**。
 
 | 项 | 值 |
 | --- | --- |
 | 安装位置 | `C:\Users\lyq\Documents\deepseek-harness\default-workspace\dsh-clis` |
 | profile 链接 | `C:\Users\lyq\.dsh\profiles\web\node_modules\dsh-clis`（junction） |
-| bundle | `index.js`（145 KB，esbuild 单文件） |
-| 插件名 | `clis` |
+| 版本 | 0.2.0（四组件） |
+| bundles 列表项 | `dsh-clis` |
 
-> **需要重启宿主才生效**：profile 的 `package.json` 与 bundles 列表已改，但宿主进程仍持有旧配置。
+## 一、四个组件
 
-## 一、构建
+| 组件 | 入口 | 服务名 |
+| --- | --- | --- |
+| 因果分类器 | `clis-classifier.js` | `clis.causalClassifier` |
+| 策略匹配器 | `clis-strategy.js` | `clis.causalStrategy` |
+| 反馈检测器 | `clis-feedback.js` | `clis.causalFeedback` |
+| 闭环编排器 | `clis-orchestrator.js` | `clis.causalOrchestrator` |
+
+patch 里四行各自独立，面板上显示为四个可分别开关的组件：
+
+```yaml
+- insert:
+    - id: clis-classifier
+      name: 'dsh-clis/classifier'
+    - id: clis-strategy
+      name: 'dsh-clis/strategy'
+    - id: clis-feedback
+      name: 'dsh-clis/feedback'
+    - id: clis-orchestrator
+      name: 'dsh-clis/orchestrator'
+```
+
+### 独立开关的连带关系
+
+`inject` 决定依赖：停用 `clis-classifier` 会连带停用 `strategy` 与 `orchestrator`（它们 inject 分类器），`feedback` 独立不受影响。
+
+## 二、构建
 
 ```powershell
 $env:Path = "D:\nvm\v22.23.3;" + $env:Path
 cd D:\个人开发\CLIS
 
-# 1. 类型检查与测试（闸门）
+# 1. 闸门
 pnpm exec tsc -p tsconfig.json     # 期望 exit 0
 pnpm exec vitest run               # 期望 33 文件 449 例全绿
 
-# 2. 打包
-pnpm exec node scripts/bundle.mjs  # 产出 bundle/clis.js
+# 2. 打包四入口（代码分割，共享 cordis chunk）
+pnpm exec node scripts/bundle.mjs
 
 # 3. 同步到插件目录
-Copy-Item bundle\clis.js C:\Users\lyq\Documents\deepseek-harness\default-workspace\dsh-clis\index.js -Force
+$dir = 'C:\Users\lyq\Documents\deepseek-harness\default-workspace\dsh-clis'
+Copy-Item bundle\*.js $dir -Force
 
-# 4. 冒烟验证（用宿主那份 cordis 建 Context 装载）
-pnpm exec node scripts/smoke-installed.mjs   # 期望 SMOKE PASS
+# 4. 冒烟（28 项：加载/命名/依赖/独立开关/闭环/卸载）
+pnpm exec node scripts/smoke-components.mjs   # 期望 SMOKE PASS
 ```
 
-## 二、为什么要打包、为什么 cordis 要内联
+## 三、为什么这样打包
 
-**必须打包**：`tsc` 产出的相对导入没有扩展名，Node ESM 解析不了；且 `tsc` 的 `paths` 映射只在编译期生效，跨包 `import '@clis/clis-contracts'` 会被抹掉。
+**必须打包**：`tsc` 产出的相对导入没有扩展名，Node ESM 解析不了；`tsc` 的 `paths` 映射只在编译期生效，跨包 import 会被抹掉。
 
-**cordis 必须内联**：profile 安装的 bundle 以 junction 指向 `default-workspace`，其 realpath 下没有宿主的 `node_modules/@deepseek-ai/*`。
-实测裸导入会 `ERR_MODULE_NOT_FOUND`。
+**cordis 内联而非外置**：profile 的 bundle 以 junction 指向 `default-workspace`，realpath 下没有宿主的 `node_modules/@deepseek-ai/*`，裸导入必然 `ERR_MODULE_NOT_FOUND`。
 
-内联后是否会造成"两份 Service 注册表、`inject` 永远等不到"？**实测不会**：
-用宿主那份 cordis 建 Context 装载本插件，四个服务全部可见、闭环跑通、卸载干净。
-`scripts/smoke-installed.mjs` 就是钉住这一点的回归测试。
+**用代码分割**：四个入口若各打一份 cordis 会得到四份副本（体积翻四倍）。`splitting: true` 让它们共享 `chunk-*.js`。
 
-## 三、手动开关（用户）
+**内联的 Service 为何仍能与宿主协作**：服务注册走 `ctx.reflect.provide`，用的是宿主传进来的 `ctx`，不依赖类身份比对。实测四服务在宿主 Context 下全部可见、卸载干净——`scripts/smoke-components.mjs` 就是钉住这一点的回归测试。
 
-**Settings → Plugins**（或 Plugin Manager）里找到「CLIS 因果分层系统」，直接启用/停用。
+## 四、手动开关（用户）
 
-- 停用后四个服务随之移除，不影响其它插件
-- 图标与中英文标题来自 `locale/*.json` 与 `icon.svg`
+**Settings → Plugins**（或 Plugin Manager）里找到四个组件，各自启用/停用。图标与中英文标题来自各组件的 `locale/`。
 
-## 四、agent 热插拔
+## 五、agent 热插拔
 
-本包声明了 `dsh.bundle.patch`，所以 agent 可用 `plugin_manager`：
-
-```
-plugin_manager(action: "list_plugins")
-plugin_manager(action: "set_plugin", target: "clis", enabled: false)
-plugin_manager(action: "set_plugin", target: "clis", enabled: true)
+```js
+plugin_manager({ action: 'list_plugins' })
+plugin_manager({ action: 'set_plugin', target: 'clis-classifier', enabled: false })
 ```
 
 开关即时生效（服务随 fiber 装卸），无需重启宿主。
-**注意**：替换 `index.js`（即升级 bundle）后需要重启宿主才能加载新的 JS 模块代。
-
-## 五、注册的服务
-
-| 服务名 | 职责 |
-| --- | --- |
-| `clis.causalClassifier` | 因果类型判断（置信度上限 0.9，<0.7 进探索模式） |
-| `clis.causalStrategy` | 策略匹配、候选路径排序、执行（不判断类型） |
-| `clis.causalFeedback` | 反馈信号检测、类型误判识别、回退建议（不执行回退） |
-| `clis.causalOrchestrator` | 编排闭环、回退上限 3 次、震荡锁定、完整 trace |
+**替换 `.js`（升级）后需要重启宿主**才能加载新的模块代。
 
 ## 六、已知限制
 
-1. **无 agent tool 入口**：目前四个插件只注册服务，agent 无法从对话里直接触发 CLIS。
-   要做成"可对话使用"，还需补一个 `defineTool` 包一层（例如 `clis_run(description, answers)`）。
-2. **四问作答需人工给定**：`CausalProblem.answers` 是四个三态字段，暂无"从自然语言自动抽取"的环节。
+1. **无 agent tool 入口**：四个组件只注册服务，agent 无法从对话直接触发。
+   工具壳 `packages/clis-plugin/src/tools.ts` 已写好（`clis_run` / `clis_classify` / `clis_plan`），
+   但尚未接入四组件入口——它需要 `defineTool`（来自 `@deepseek-ai/dsh-tools`），
+   而该包在 link 布局下如何解析尚待解决。
+2. **四问作答需人工给定**：`CausalProblem.answers` 是四个三态字段，暂无自然语言→四问的抽取环节。
 3. **ActionExecutor 只有接口**：执行真实动作时由调用方提供；当前无默认实现。
-4. **profile 写锁**：安装期间遇到宿主持有的 `package.json.lock`，`plugin_manager install_bundle` 超时，
-   最终采用手工登记（改 `package.json` + bundles 列表 + junction）。
 
 ## 七、卸载
 
