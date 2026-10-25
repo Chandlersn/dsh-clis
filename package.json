@@ -1,0 +1,26 @@
+{
+  "name": "clis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLIS — 因果分层智能系统：先判断因果类型，再匹配策略，反馈回退。基于 Cordis 插件规范。",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "pnpm run typecheck && pnpm run test"
+  },
+  "dependencies": {
+    "@clis/clis-classifier": "workspace:*",
+    "@clis/clis-contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "@types/node": "^22.18.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
+  }
+}

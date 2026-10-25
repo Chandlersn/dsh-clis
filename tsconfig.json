@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@clis/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
+      "@clis/clis-classifier": ["./packages/clis-classifier/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@clis/clis-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLIS 共享契约：因果类型词表、四问定义、判定输出结构、抽象服务接口。四个插件只依赖它，不互相 import 实现。",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  }
+}
