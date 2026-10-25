@@ -1,38 +1,46 @@
 import type { Context } from '@deepseek-ai/cordis';
 
-import { apply as applyClassifier } from '@clis/clis-classifier';
-import { apply as applyFeedback } from '@clis/clis-feedback';
-import { apply as applyOrchestrator } from '@clis/clis-orchestrator';
-import { apply as applyStrategy } from '@clis/clis-strategy';
+import { registerTools } from './tools';
 
 /**
- * CLIS 单一插件入口（Host 侧）。
+ * CLIS 包根入口 —— **只注册 agent 工具**，不装载四个组件。
  *
- * 四个子插件按固定顺序装载：
- *   classifier → strategy → feedback → orchestrator
+ * 职责划分：
+ * - 四个组件各有独立入口（`dsh-clis/classifier` 等），由 patch 里的四行分别装载，
+ *   因此它们可以在面板上各自开关。
+ * - 包根入口只负责把三个工具（clis_run / clis_classify / clis_plan）注册给 agent。
  *
- * 顺序不是任意的：strategy 的 inject 依赖 classifier 的服务名，
- * orchestrator 的 inject 同时依赖三者。Cordis 的 inject 会等依赖就位，
- * 所以顺序错了也不会崩，但按依赖顺序装载能让服务更早可用。
+ * 为什么不用包根装载组件：那样会让四个组件被装载两次（包根 + 各自入口），
+ * 造成服务重复注册。
  *
- * 用户可在 Plugin Manager 里手动开启/关闭本插件；
- * agent 可用 plugin_manager 工具热插拔（dsh.bundle 声明让它在面板里可见）。
+ * 为什么包根必须存在：Loader 解析 bundle 时先按 `exports["."]` 判断整包合法性，
+ * 缺包根会导致整包被跳过（四个子行全部停在 absent）。
+ *
+ * 工具层只做转发，判据全部在四个组件里：
+ * 分类 → classifier，匹配 → strategy，反馈 → feedback，编排 → orchestrator。
  */
-export const name = 'clis';
-
-/** 无外部服务依赖：四个子插件的依赖都在内部满足。 */
-export const inject: string[] = [];
+export const name = 'clis-tools';
 
 /**
- * 装载全部四个子插件。
+ * 工具注册需要三个服务与 `tools`。
  *
- * @param ctx — 插件上下文。
+ * 若某个组件被用户在面板上关闭，依赖它的工具会因 inject 不满足而停用 ——
+ * 这是期望行为：关掉分类器，clis_classify 自然不可用。
+ */
+export const inject: string[] = [
+  'tools',
+  'clis.causalClassifier',
+  'clis.causalStrategy',
+  'clis.causalOrchestrator',
+];
+
+/**
+ * 注册 CLIS 工具。
+ *
+ * @param ctx 插件上下文。
  */
 export function apply(ctx: Context): void {
-  applyClassifier(ctx);
-  applyStrategy(ctx);
-  applyFeedback(ctx);
-  applyOrchestrator(ctx);
+  registerTools(ctx);
 }
 
 export { classifyProblem } from '@clis/clis-classifier';

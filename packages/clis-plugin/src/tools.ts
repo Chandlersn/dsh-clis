@@ -1,11 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis';
+import type {
+  CausalProblem,
+  FourAnswers,
+  StrategyBoundary,
+} from '@clis/clis-contracts';
+
+import { defineTool as hostDefineTool } from './cordis-shim';
 
 /**
  * CLIS 的工具入口 —— 只做**转发**，不含任何判据。
  *
- * 为什么需要这一层：四个子插件注册的是 Cordis **服务**（进程内），
- * 而 agent 只能通过**工具**触达。这一层把工具调用转成服务调用，
- * 让 agent 能在对话里真正用上 CLIS。
+ * 为什么需要这一层：四个组件注册的是 Cordis **服务**（进程内），
+ * 而 agent 只能通过**工具**触达。这一层把工具调用转成服务调用。
  *
  * 职责边界不变：
  * - 分类在 clis.causalClassifier
@@ -13,107 +19,133 @@ import type { Context } from '@deepseek-ai/cordis';
  * - 反馈在 clis.causalFeedback
  * - 编排在 clis.causalOrchestrator
  * 本文件只做参数整形与结果渲染。
+ *
+ * 注意：`defineTool` 必须用**宿主那一份**（见 cordis-shim），
+ * 否则宿主认不出 ToolDefinition。
  */
+
+/** 宿主 `defineTool` 的最小可调用形状（避免引入 dsh-tools 的类型包）。 */
+type HostDefineTool = (options: Record<string, unknown>) => unknown;
+
+/** 宿主 `ctx.tools` 的最小可用形状。 */
+interface HostToolRuntime {
+  register(definition: unknown): () => void;
+}
+
+const defineTool = hostDefineTool as unknown as HostDefineTool;
+
+/**
+ * 取上下文的工具注册表。
+ *
+ * `ctx.tools` 由宿主 `@deepseek-ai/dsh-tools` 增强到 Context 上，
+ * 本包不依赖它的类型包，故此处做一次窄化断言。
+ *
+ * @param ctx 插件上下文。
+ * @returns 工具注册表。
+ */
+function toolRuntime(ctx: Context): HostToolRuntime {
+  return (ctx as unknown as { tools: HostToolRuntime }).tools;
+}
 
 const SERVICE_CLASSIFIER = 'clis.causalClassifier';
-const SERVICE_ORCHESTRATOR = 'clis.causalOrchestrator';
 const SERVICE_STRATEGY = 'clis.causalStrategy';
+const SERVICE_ORCHESTRATOR = 'clis.causalOrchestrator';
 
-/** 四问的字段名，与契约包一致。 */
-const ANSWER_KEYS = [
-  'q1_simultaneous_mutual_definition',
-  'q2_delayed_mutual_influence',
-  'q3_strict_irreversible_order',
-  'q4_coexisting_causal_structures',
-];
+/** 四问参数名到契约字段的映射。 */
+const FOUR_QUESTION_PROPS = {
+  q1: 'Q1：A 与 B 是否同时成立、彼此定义、且无时间先后？',
+  q2: 'Q2：是否存在带时间延迟的相互影响（A→B→A，可能振荡）？',
+  q3: 'Q3：是否 A→B 严格先后且不可逆？',
+  q4: 'Q4：系统中是否同时存在多种因果结构（需拆子模块）？',
+} as const;
+
+type QuestionKey = keyof typeof FOUR_QUESTION_PROPS;
+
+/** 工具入参里的四问作答形状。 */
+type TriStateArg = 'yes' | 'no' | 'unknown';
 
 /**
- * 把工具参数里的四问整形成 CausalProblem。
+ * 把工具入参整形成 CausalProblem。
  *
- * @param args — 工具入参。
+ * 入参已由宿主按 schema 校验（四项 required + enum），
+ * 此处只做一次窄化，把 `Record<string, unknown>` 收敛到契约类型。
+ *
+ * @param raw 工具入参。
  * @returns CausalProblem。
  */
-function toProblem(args) {
-  return {
-    description: args.description,
-    answers: {
-      q1_simultaneous_mutual_definition: args.q1,
-      q2_delayed_mutual_influence: args.q2,
-      q3_strict_irreversible_order: args.q3,
-      q4_coexisting_causal_structures: args.q4,
-    },
+function toProblem(raw: Record<string, unknown>): CausalProblem {
+  const args = raw as {
+    description: string;
+    q1: TriStateArg;
+    q2: TriStateArg;
+    q3: TriStateArg;
+    q4: TriStateArg;
   };
+
+  const answers: FourAnswers = {
+    q1_simultaneous_mutual_definition: args.q1,
+    q2_delayed_mutual_influence: args.q2,
+    q3_strict_irreversible_order: args.q3,
+    q4_coexisting_causal_structures: args.q4,
+  };
+  return { description: args.description, answers };
 }
 
 /**
- * 把工具入参中的 boundary 整形成 StrategyBoundary。
+ * 把工具入参里的 forbidden 动作整形成 StrategyBoundary。
  *
- * @param args — 工具入参。
+ * @param raw 工具入参。
  * @returns StrategyBoundary。
  */
-function toBoundary(args) {
-  return {
-    forbidden_actions: args.forbidden_actions ?? [],
-  };
+function toBoundary(raw: Record<string, unknown>): StrategyBoundary {
+  const forbidden = raw.forbidden_actions as readonly string[] | undefined;
+  return { forbidden_actions: forbidden ?? [] };
 }
 
-const ANSWERS_SCHEMA_DESCRIPTION =
-  '四问作答，每项 yes/no/unknown。Q1 是否同时成立、彼此定义、无时间先后；Q2 是否存在带时间延迟的相互影响（A→B→A）；Q3 是否 A→B 严格先后且不可逆；Q4 是否同时存在多种因果结构。';
+/** 四问参数的共享 schema 片段。 */
+function questionParams(): Record<string, object> {
+  const params: Record<string, object> = {};
+  for (const [key, text] of Object.entries(FOUR_QUESTION_PROPS)) {
+    params[key] = {
+      type: 'string',
+      required: true,
+      enum: ['yes', 'no', 'unknown'],
+      description: text,
+    };
+  }
+  return params;
+}
 
 /**
- * 注册 CLIS 的工具。
+ * 注册 CLIS 的三个工具。
  *
- * @param ctx — 已注入 tools 服务的上下文。
+ * @param ctx 已具备 tools 服务的上下文。
  */
 export function registerTools(ctx: Context): void {
-  // —— 工具 1：完整闭环 ——
-  ctx.tools.register(
-    ctx.defineTool?.({
+  // —— clis_run：完整闭环 ——
+  toolRuntime(ctx).register(
+    defineTool({
       name: 'clis_run',
       description:
-        '按因果类型处理一个问题：先判断因果类型（结构对偶/循环/单向/嵌套/未知），再匹配策略、生成候选路径并执行，依据反馈信号决定继续、换路径或回退。适用于需要先辨明因果结构再动手的问题，例如反馈回路该怎么干预、单向依赖能否逆转、两个概念是否互为定义。返回因果类型、判断依据、候选项、反馈信号与完整 trace。',
+        '按因果类型处理一个问题：先判断因果类型（结构对偶/循环/单向/嵌套/未知），再匹配策略、生成候选路径，执行后依据反馈信号决定继续、换路径或回退。适合需要先辨明因果结构再动手的问题，例如反馈回路该怎么干预、单向依赖能否逆转、两个概念是否互为定义。返回因果类型、判断依据、反馈信号与完整 trace。',
       parameters: {
         description: {
           type: 'string',
           required: true,
           description: '问题描述，一句话说清 A 与 B 的关系。',
         },
-        q1: {
-          type: 'string',
-          required: true,
-          enum: ['yes', 'no', 'unknown'],
-          description: 'Q1：A 与 B 是否同时成立、彼此定义、且无时间先后？',
-        },
-        q2: {
-          type: 'string',
-          required: true,
-          enum: ['yes', 'no', 'unknown'],
-          description: 'Q2：是否存在带时间延迟的相互影响（A→B→A，可能振荡）？',
-        },
-        q3: {
-          type: 'string',
-          required: true,
-          enum: ['yes', 'no', 'unknown'],
-          description: 'Q3：是否 A→B 严格先后且不可逆？',
-        },
-        q4: {
-          type: 'string',
-          required: true,
-          enum: ['yes', 'no', 'unknown'],
-          description: 'Q4：系统中是否同时存在多种因果结构（需拆子模块）？',
-        },
+        ...questionParams(),
         forbidden_actions: {
           type: 'array',
-          required: false,
           description: '可选：禁止执行的动作名列表，策略不会把它们排进路径。',
           items: { type: 'string' },
         },
       },
       output: {
         schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+        render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
-      async execute(args) {
+      async execute(args: Record<string, unknown>) {
         const orchestrator = ctx[SERVICE_ORCHESTRATOR];
         if (orchestrator === undefined) {
           throw new Error('CLIS 未就绪：clis.causalOrchestrator 服务不可用');
@@ -149,28 +181,21 @@ export function registerTools(ctx: Context): void {
     }),
   );
 
-  // —— 工具 2：只做分类 ——
-  ctx.tools.register(
-    ctx.defineTool?.({
+  // —— clis_classify：只判断类型 ——
+  toolRuntime(ctx).register(
+    defineTool({
       name: 'clis_classify',
       description:
-        '只判断因果类型，不生成策略也不执行。四类确定类型：structural_duality（同时成立、彼此定义、无先后）、cyclic（A→B→A 有时间延迟）、unidirectional（严格先后且不可逆）、nested（多种结构并存需拆子模块）；无法判断时返回 unknown 并给出候选假设，不强行归类。置信度上限 0.9，低于 0.7 标记需探索。',
+        '只判断因果类型，不生成策略也不执行。四类确定类型：structural_duality（同时成立、彼此定义、无先后）、cyclic（A→B→A 有时间延迟）、unidirectional（严格先后且不可逆）、nested（多种结构并存需拆子模块）；无法判断时返回 unknown 并给候选假设，不强行归类。置信度上限 0.9，低于 0.7 标记需探索。',
       parameters: {
-        description: {
-          type: 'string',
-          required: true,
-          description: '问题描述。',
-        },
-        q1: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q1：同时成立、彼此定义、无时间先后？' },
-        q2: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q2：存在带时间延迟的相互影响？' },
-        q3: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q3：A→B 严格先后且不可逆？' },
-        q4: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q4：同时存在多种因果结构？' },
+        description: { type: 'string', required: true, description: '问题描述。' },
+        ...questionParams(),
       },
       output: {
         schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+        render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
-      async execute(args) {
+      async execute(args: Record<string, unknown>) {
         const classifier = ctx[SERVICE_CLASSIFIER];
         if (classifier === undefined) {
           throw new Error('CLIS 未就绪：clis.causalClassifier 服务不可用');
@@ -196,30 +221,26 @@ export function registerTools(ctx: Context): void {
     }),
   );
 
-  // —— 工具 3：只出候选路径 ——
-  ctx.tools.register(
-    ctx.defineTool?.({
+  // —— clis_plan：只出候选路径 ——
+  toolRuntime(ctx).register(
+    defineTool({
       name: 'clis_plan',
       description:
         '只生成候选策略路径并排序，不执行。按「类型匹配度 0.4 + 预期效果 0.3 + 副作用风险 0.2 + 执行成本 0.1」排序，风险与成本以 (1-值) 进入故越低越优。返回每条路径的动作步骤、分数与名次，以及因边界被剔除的动作。',
       parameters: {
         description: { type: 'string', required: true, description: '问题描述。' },
-        q1: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q1：同时成立、彼此定义、无时间先后？' },
-        q2: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q2：存在带时间延迟的相互影响？' },
-        q3: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q3：A→B 严格先后且不可逆？' },
-        q4: { type: 'string', required: true, enum: ['yes', 'no', 'unknown'], description: 'Q4：同时存在多种因果结构？' },
+        ...questionParams(),
         forbidden_actions: {
           type: 'array',
-          required: false,
           description: '可选：禁止执行的动作名列表。',
           items: { type: 'string' },
         },
       },
       output: {
         schema: { type: 'json' },
-        render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+        render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
-      async execute(args) {
+      async execute(args: Record<string, unknown>) {
         const classifier = ctx[SERVICE_CLASSIFIER];
         const strategy = ctx[SERVICE_STRATEGY];
         if (classifier === undefined || strategy === undefined) {
@@ -254,4 +275,4 @@ export function registerTools(ctx: Context): void {
   );
 }
 
-export { ANSWER_KEYS };
+export type { QuestionKey };

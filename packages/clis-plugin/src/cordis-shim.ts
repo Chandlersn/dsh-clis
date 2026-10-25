@@ -159,4 +159,14 @@ export const Fiber = host.Fiber;
 export const RegistryService = host.RegistryService;
 export const Inject = host.Inject;
 
+/**
+ * 宿主的 defineTool —— 必须用宿主那一份。
+ *
+ * 工具定义会经过宿主的参数校验与渲染管线；用错版本会造出
+ * 宿主认不出的 ToolDefinition。与 Service 同理，只认宿主那份。
+ *
+ * @type {Function}
+ */
+export const defineTool = loadHost('@deepseek-ai/dsh-tools').defineTool;
+
 export default host;
