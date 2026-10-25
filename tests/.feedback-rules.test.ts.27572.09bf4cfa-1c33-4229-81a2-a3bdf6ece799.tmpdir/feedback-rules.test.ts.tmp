@@ -1,0 +1,15 @@
+/**
+ * SPEC-feedback §3 四种信号类型的判定与优先级、§6 验证方第 1/2/3 项。
+ *
+ * 期望值全部来自 SPEC §3 的规则表与 §3.4 的标记词约定。
+ */
+import { describe, expect, it } from 'vitest';
+import * as feedbackPlugin from '@clis/clis-feedback';
+
+import {
+  MODE_MARKERS,
+  blockedResult,
+  classificationRef,
+  detectOptions,
+  ebBoundary as _unusedEbBoundary,
+} from './feedback-helpers-placeholder';
