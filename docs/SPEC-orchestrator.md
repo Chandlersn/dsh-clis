@@ -23,10 +23,32 @@ clis-orchestrator **只做编排与决策**。禁止：
 | `apply` | `(ctx: Context) => void` |
 | `OrchestratorServiceImpl` | `class extends Service implements OrchestratorService` |
 | `decide` | `(round, state, options?) => { decision, nextState }`，**纯函数**：同步、确定性、无 I/O |
+| `run` | `(problem, options?) => Promise<OrchestratorRunResult>`，自动闭环循环 |
+| `runRound` | 跑单轮，供调用方自行控轮 |
 | `ROLLBACK_LIMIT_DEFAULT` | `3` |
 | `TYPE_LOCK_ROUNDS_DEFAULT` | `1` |
 
 服务名：`CAUSAL_ORCHESTRATOR_SERVICE`（值 `'clis.causalOrchestrator'`）。
+
+## 2.1 `run(problem)` 的闭环语义
+
+自动循环，直到终局：
+
+| 信号 | 动作 | 循环内行为 |
+| --- | --- | --- |
+| `effective` | `continue` | **返回** `outcome='effective'` |
+| `ineffective` | `switch_path` | 换下一条候选路径；**路径用尽时**退回重新分类（`rollback_count+1`），不直接判死 |
+| `type_misjudged` | `rollback_to_classifier` | 重新 `classify` + 重新 `match`，`rollback_count+1` |
+| `boundary_invalid` | `rollback_to_boundary` | 重新 `match`，`rollback_count+1` |
+| 锁定中 | `lock_and_continue` | **返回** `outcome='effective'`（锁定期内按当前类型继续推进） |
+| 回退耗尽 | `manual_intervention` | **返回** `outcome='manual_intervention'` |
+
+- `outcome` 取值：`'effective' | 'manual_intervention' | 'exhausted'`。
+- `max_rounds`（缺省 32）是防失控保护；触顶返回 `manual_intervention`。
+- 返回的 `state.traces` 恒完整（每轮一条，永不丢弃）。
+
+> 注：`lock_and_continue` 之所以算 `effective` 终局，是因为它表示"本轮不再回退、按当前类型继续推进"，
+> 而不是"结果已验证有效"。调用方若需区分，读 `decision.action`。
 
 ## 3. 决策优先级（自上而下，命中即返回）
 

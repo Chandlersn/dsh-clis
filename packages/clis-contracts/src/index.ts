@@ -100,6 +100,7 @@ export type {
 
 export {
   ORCHESTRATOR_ACTIONS,
+  RUN_OUTCOMES,
   initialState,
 } from './orchestrator';
 export type {
@@ -110,6 +111,9 @@ export type {
   OrchestratorState,
   OrchestratorRound,
   OrchestratorOptions,
+  RunOutcome,
+  OrchestratorRunResult,
+  RunOptions,
 } from './orchestrator';
 
 export { ClisContractError } from './errors';

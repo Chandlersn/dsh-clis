@@ -7,8 +7,10 @@ import type {
   OrchestratorDecision,
   OrchestratorOptions,
   OrchestratorRound,
+  OrchestratorRunResult,
   OrchestratorState,
   RoundTrace,
+  RunOptions,
 } from './orchestrator';
 import type { CausalProblem, ClassifyOptions } from './problem';
 import type { CandidatePath, ExecutePathOptions, ExecutionResult } from './strategy';
@@ -94,6 +96,18 @@ export interface FeedbackService {
 /** clis-orchestrator 对外暴露的能力面。 */
 export interface OrchestratorService {
   /**
+   * 跑完整闭环，直到拿到有效结果或回退耗尽。
+   *
+   * 内部循环：分类 → 匹配 → 执行 → 反馈 → 继续/换路径/回退/锁定，
+   * 回退次数上限与震荡锁定由本插件负责；超过上限输出 `manual_intervention` 并保留完整 trace。
+   *
+   * @param problem — 结构化问题。
+   * @param options — 边界、执行器、回退上限、锁定时长。
+   * @returns 终局、完整 trace 与最终决策。
+   */
+  run(problem: CausalProblem, options?: RunOptions): Promise<OrchestratorRunResult>;
+
+  /**
    * 依据本轮的执行结果与反馈信号做出决策。
    *
    * orchestrator 自身**无状态**：状态由调用方持有并逐轮传入。
@@ -111,7 +125,8 @@ export interface OrchestratorService {
   ): Promise<{ decision: OrchestratorDecision; nextState: OrchestratorState }>;
 
   /**
-   * 便捷入口：把一轮闭环（分类 → 生成路径 → 执行 → 反馈 → 决策）串起来。
+   * 跑**一轮**闭环（分类 → 生成路径 → 执行 → 反馈 → 决策）。
+   * 供调用方自行控制轮次时使用；`run()` 是它的自动循环版本。
    *
    * @param problem — 结构化问题。
    * @param boundary — 策略边界。

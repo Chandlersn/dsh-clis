@@ -1,4 +1,5 @@
 import type { CausalType, KnownCausalType } from './causal-type';
+import type { CausalClassification } from './classification';
 import type { FeedbackSignal } from './feedback';
 import type { CausalProblem } from './problem';
 import type { CandidatePath, ExecutionResult } from './strategy';
@@ -98,4 +99,39 @@ export function initialState(): OrchestratorState {
     oscillation: { consecutive_rollbacks: {}, lock_remaining: 0 },
     traces: [],
   };
+}
+
+/** run(problem) 的终局。 */
+export const RUN_OUTCOMES = ['effective', 'manual_intervention', 'exhausted'] as const;
+
+export type RunOutcome = (typeof RUN_OUTCOMES)[number];
+
+/** run(problem) 的返回。 */
+export interface OrchestratorRunResult {
+  /** effective=拿到有效结果；manual_intervention=回退耗尽需人工介入；exhausted=无可用路径。 */
+  readonly outcome: RunOutcome;
+  /** 完整 trace（永不丢弃）。 */
+  readonly state: OrchestratorState;
+  /** 最终采用的分类结论。 */
+  readonly classification: CausalClassification;
+  /** 最终执行结果；未执行时不存在。 */
+  readonly execution?: ExecutionResult;
+  /** 最终反馈信号；未执行时不存在。 */
+  readonly signal?: FeedbackSignal;
+  /** 最后一次决策。 */
+  readonly decision: OrchestratorDecision;
+  /** 一句话终局说明（恒非空）。 */
+  readonly reason: string;
+}
+
+/** run(problem) 的可选参数。 */
+export interface RunOptions extends OrchestratorOptions {
+  /** 策略边界；缺省空黑名单。 */
+  readonly boundary?: StrategyBoundary;
+  /** 动作执行器；缺省为"全部成功"的空执行器（便于纯逻辑验证）。 */
+  readonly executor?: import('./strategy').ActionExecutor;
+  /** 起始状态；缺省 initialState()。 */
+  readonly state?: OrchestratorState;
+  /** 最大轮数保护（防止无限循环）；缺省 32。 */
+  readonly max_rounds?: number;
 }
