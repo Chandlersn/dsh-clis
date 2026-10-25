@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 
 /**
  * 把 CLIS 打成宿主可加载的 bundle。
@@ -15,7 +15,6 @@ import { mkdirSync, rmSync } from 'node:fs';
  * 实测内联出的 Service 仍能向宿主 Context 注册服务（注册走 ctx.reflect.provide，
  * 用的是宿主传进来的 ctx），因此服务对宿主可见、卸载也干净。
  */
-rmSync('bundle', { recursive: true, force: true });
 mkdirSync('bundle', { recursive: true });
 
 await build({
