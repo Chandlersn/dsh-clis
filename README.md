@@ -68,9 +68,11 @@ reports/                    验证报告
 
 ## 当前进度
 
-- [x] 步骤 0：`packages/clis-contracts`
-- [x] 步骤 1：`clis-classifier`（145 例验收通过）
-- [x] 步骤 2：`clis-strategy`（264 例全绿；验收判定由 Lead 做出，独立性限制见报告）
-- [x] 步骤 3：`clis-feedback`（286 例全绿；实现完成，待独立验收）
-- [ ] 步骤 4：`clis-orchestrator`
-- [ ] 步骤 5：端到端验收
+- [x] 步骤 0：`packages/clis-contracts`（共享契约）
+- [x] 步骤 1：`clis-classifier`（因果类型判断，145 例）
+- [x] 步骤 2：`clis-strategy`（策略库+匹配排序+执行，119 例）
+- [x] 步骤 3：`clis-feedback`（反馈信号+误判识别+回退建议，122 例）
+- [x] 步骤 4：`clis-orchestrator`（编排+回退上限+震荡锁定，34 例）
+- [x] 步骤 5：端到端验收（442 例全绿，`tsc` exit 0）
+
+验收报告：`reports/classifier-verification.md`、`reports/strategy-verification.md`、`reports/system-verification.md`。
