@@ -298,6 +298,8 @@ function matchAtDepth(
     buildPath(variant, `p${index + 1}`, classification, boundary, maxDepth, depth),
   );
 
+  // rank 只由 score 决定（SPEC-strategy §4.3）：整条不可执行的路径不会被自动降级。
+  // 排序公式里没有边界项，这是刻意的 —— 调用方必须**先按 executable 过滤**再取 rank 1。
   // Array.prototype.sort 自 ES2019 起稳定：同分者保持上面的声明顺序。
   return [...built]
     .sort((left, right) => right.score - left.score)

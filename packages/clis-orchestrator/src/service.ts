@@ -9,6 +9,7 @@ import {
 } from '@clis/clis-contracts';
 import type {
   ActionExecutor,
+  CandidatePath,
   OrchestratorDecision,
   OrchestratorOptions,
   OrchestratorRound,
@@ -28,6 +29,32 @@ import { decide, initialState, ROLLBACK_LIMIT_DEFAULT } from './decide';
 
 /** run() 的轮数保护上限，防止闭环失控。 */
 const DEFAULT_MAX_ROUNDS = 32;
+
+/**
+ * 按**可执行性**给候选路径分区：可执行的排前面，不可执行的排后面。
+ *
+ * 为什么编排器必须自己分区：
+ * SPEC-strategy §4.3 规定 `rank` 只由 score 决定，整条不可执行的路径不会被
+ * 自动降级 —— 排序公式里没有边界项，这是刻意的，并要求**调用方先按
+ * `executable` 过滤**再取 rank 1。编排器就是那个调用方。
+ *
+ * 若照数组顺序直接取 paths[0]，被边界剔过步的路径仍可能拿最高分，
+ * 于是一轮被白白耗在一条必然 `blocked` 的路径上。
+ *
+ * 注意：此处只调整**遍历顺序**，不改动任何 path 的 `rank` 字段
+ * （rank 仍是 score 名次，供调用方复核）。
+ *
+ * 分区使用稳定排序：同类之间保持原有的 score 降序。
+ *
+ * @param paths 策略返回的候选路径（已按 score 降序）。
+ * @returns 可执行在前、不可执行在后的新数组。
+ */
+function orderByExecutable(paths: readonly CandidatePath[]): CandidatePath[] {
+  return [...paths].sort((left, right) => {
+    if (left.executable === right.executable) return 0;
+    return left.executable ? -1 : 1;
+  });
+}
 
 /**
  * 编排服务的 Cordis 实现。
@@ -66,7 +93,7 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
 
     let state = options.state ?? initialState();
     let classification = await classifier.classify(problem);
-    let paths = await strategy.match(classification, boundary);
+    let paths = orderByExecutable(await strategy.match(classification, boundary));
     let pathIndex = 0;
 
     let execution: ExecutionResult | undefined;
@@ -152,7 +179,7 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
         }
         if (state.rollback_count < (options.rollback_limit ?? ROLLBACK_LIMIT_DEFAULT)) {
           classification = await classifier.classify(problem);
-          paths = await strategy.match(classification, boundary);
+          paths = orderByExecutable(await strategy.match(classification, boundary));
           pathIndex = 0;
           state = {
             ...state,
@@ -179,14 +206,14 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
         // 回到分类器重新判断。problem 不变时结论通常相同，故这里只重置路径游标，
         // 由震荡锁定与回退上限兜住"同一类型反复回退"的死循环。
         classification = await classifier.classify(problem);
-        paths = await strategy.match(classification, boundary);
+        paths = orderByExecutable(await strategy.match(classification, boundary));
         pathIndex = 0;
         continue;
       }
 
       if (decision.action === 'rollback_to_boundary') {
         // 回到边界设定：调用方未提供新边界时，退回空黑名单重试一轮。
-        paths = await strategy.match(classification, boundary);
+        paths = orderByExecutable(await strategy.match(classification, boundary));
         pathIndex = 0;
         continue;
       }
