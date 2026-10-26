@@ -1,6 +1,6 @@
 import type { CausalType, KnownCausalType } from './causal-type';
 import type { CausalClassification } from './classification';
-import type { FeedbackSignal } from './feedback';
+import type { FeedbackSignal, RollbackKind } from './feedback';
 import type { CausalProblem } from './problem';
 import type { CandidatePath, ExecutionResult } from './strategy';
 import type { StrategyBoundary } from './boundary';
@@ -43,6 +43,16 @@ export interface OrchestratorDecision {
   readonly action: OrchestratorAction;
   /** 需要重新分类时的建议类型；仅 rollback_to_classifier 可能出现。 */
   readonly retry_type?: KnownCausalType;
+  /**
+   * 回退建议的种类，原样取自 `signal.suggested_rollback.kind`；
+   * 仅 rollback_to_classifier 可能出现。
+   *
+   * 为什么要带上它：feedback 契约刻意区分 `recheck_type`（换一种类型假设）
+   * 与 `restore_type`（回到原类型再试），两者对调用方的含义完全不同。
+   * 早先编排层只透传 `retry_type` 而丢掉 kind，这个区分就在这一层断了 ——
+   * 调用方无法分辨"换个假设"还是"退回原样"。
+   */
+  readonly retry_kind?: RollbackKind;
   /** 需要换路径时的目标 path_id；仅 switch_path 出现。 */
   readonly next_path_id?: string;
   /** 一句话理由，恒非空。 */
@@ -81,6 +91,18 @@ export interface OrchestratorRound {
   readonly signal: FeedbackSignal;
   /** 本轮的分类结论类型（只读）。 */
   readonly causal_type: CausalType;
+  /**
+   * 换路径时改用哪条路径（`signal_type === 'ineffective'` 时用）。
+   *
+   * 这个字段是 SPEC §3.5 明确要求调用方传入的，但早先**契约里漏了它** ——
+   * 只有输出 `OrchestratorDecision.next_path_id` 有，输入的 round 没有。
+   * 后果：类型安全的调用方根本传不进来，实现只能靠 `as` 断言去读一个
+   * 未声明字段（见 `clis-orchestrator/src/decide.ts`），规格那一条在类型
+   * 层面不可达。2026-10-26 由独立验收方只读规格 + 契约发现。
+   *
+   * 缺省（不传）时 `switch_path` 决策不设 `next_path_id`，仍输出该动作。
+   */
+  readonly next_path_id?: string;
 }
 
 /** run 的可选参数。 */

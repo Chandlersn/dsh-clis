@@ -30,6 +30,15 @@ clis-orchestrator **只做编排与决策**。禁止：
 
 服务名：`CAUSAL_ORCHESTRATOR_SERVICE`（值 `'clis.causalOrchestrator'`）。
 
+> **同名不同形，注意别混**：包级导出的 `decide` 是**同步纯函数本体**；服务方法
+> `OrchestratorService.decide` 是**异步包装**（返回 Promise）。两者名字一样、形状不同
+> —— 调用方拿不准时看返回是不是 thenable。
+
+> **`OrchestratorRound.next_path_id`**：§3.5 要求调用方在 round 里给出换路径目标。
+> 该字段是**输入**字段（与输出的 `OrchestratorDecision.next_path_id` 同名但不同位）。
+> 早先契约漏声明了它，导致 §3.5 在类型层面不可达（实现只能靠 `as` 断言读未声明属性），
+> 2026-10-26 由独立验收方只读规格 + 契约发现并修复。
+
 ## 2.1 `run(problem)` 的闭环语义
 
 自动循环，直到终局：
@@ -83,6 +92,11 @@ clis-orchestrator **只做编排与决策**。禁止：
 - 输出 `action='lock_and_continue'`，`locked_type = state.oscillation.locked_type`。
 - `nextState.oscillation.lock_remaining = 上一轮 - 1`。
 - **锁定期间不允许回退**：`rollback_count` 不变。
+- **锁定轮不清零 `consecutive_rollbacks`**（规格明确化，2026-10-26）。
+  锁定只压住回退，不改判"这个类型已经被连续回退过"这一事实。因此锁定解除后
+  若同一类型**再次**被判误判，计数继续增长（≥2）→ **立即再次锁定**。
+  这是刻意的：该类型仍在反复失效，震荡保护应继续生效而不是从头计数。
+  只有 `effective`（§3.6）才清零。
 
 ### 3.3 `rollback_to_boundary`
 
@@ -90,6 +104,11 @@ clis-orchestrator **只做编排与决策**。禁止：
 
 - `rollback_count + 1`。
 - 输出 `action='rollback_to_boundary'`。
+- **不进入震荡记录**（规格明确化，2026-10-26）：`consecutive_rollbacks` 不变，也不触发锁定。
+  理由：`boundary_invalid` 表示"优化越出了预设边界"，**不是"类型假设错了"**——
+  它是边界设定的问题，回退到重新界定边界即可。震荡保护针对的是类型反复误判，
+  把边界失效也算进去会让两种不同缺陷互相污染计数。
+  因此边界反复失效时**不会**被锁定抑制；若需要该保护，应作为独立机制另议。
 
 ### 3.4 `rollback_to_classifier`
 
@@ -97,6 +116,11 @@ clis-orchestrator **只做编排与决策**。禁止：
 
 - `rollback_count + 1`。
 - `retry_type = signal.suggested_rollback?.target_type`（缺失时**不设**该字段）。
+- `retry_kind = signal.suggested_rollback?.kind` 原样透传（缺失时不设）。
+  **为什么必须带上**：feedback 契约刻意区分 `recheck_type`（换一种类型假设）
+  与 `restore_type`（回到原类型再试），两者对调用方的含义完全不同。
+  早先编排层只透传 `retry_type` 而丢掉 kind，这个区分就在这一层断了
+  —— 2026-10-26 由独立验收方发现（契约有 `ROLLBACK_KINDS`，决策却无字段承载）。
 - **震荡记录**：对 `round.causal_type` 的 `consecutive_rollbacks` 计数 +1；若该计数 **≥2**
   （即同一类型连续被回退两次），则 `nextState.oscillation.locked_type = round.causal_type`、
   `lock_remaining = lock_rounds`（缺省 1）。
@@ -121,7 +145,9 @@ clis-orchestrator **只做编排与决策**。禁止：
 
 - `nextState.round = state.round + 1`。
 - `nextState.traces` = 旧 traces 追加一条本轮 `RoundTrace`（**永不丢弃历史**）。
-- `RoundTrace.round` 与本轮编号一致（从 1 起）。
+- `RoundTrace.round === nextState.round`（即上一轮的 round + 1，首轮为 1）。
+  注意**不是** `state.round`：`initialState().round` 是 0，照后者写首轮会得 0，
+  与"从 1 起"矛盾。措辞 2026-10-26 由独立验收方指出可二解后改为等式。
 - `rollback_count` 只在 §3.3/§3.4 递增，其余不变；**任何情况下不得超过 `rollback_limit`**
   （达到上限后转为 `manual_intervention`）。
 - `reason` 恒非空；`RoundTrace.note` 恒非空。

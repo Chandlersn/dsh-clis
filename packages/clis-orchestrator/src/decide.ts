@@ -224,6 +224,7 @@ interface Draft {
   reason: string;
   rollbackCount: number;
   retryType?: OrchestratorDecision['retry_type'];
+  retryKind?: OrchestratorDecision['retry_kind'];
   nextPathId?: string;
   lockedType?: OrchestratorDecision['locked_type'];
   lockRemaining: number;
@@ -298,6 +299,10 @@ export function decide(
 
     const retry = round.signal.suggested_rollback?.target_type;
     if (retry !== undefined) draft.retryType = retry;
+    // §3.4 原样带上建议的种类：feedback 刻意区分 recheck_type（换一种假设）
+    // 与 restore_type（回到原类型再试），丢掉它调用方就分辨不了。
+    const retryKind = round.signal.suggested_rollback?.kind;
+    if (retryKind !== undefined) draft.retryKind = retryKind;
     if (reached) draft.lockedType = causalType;
   } else if (signalType === 'ineffective') {
     // §3.5 换路径
@@ -308,7 +313,9 @@ export function decide(
       lockRemaining: state.oscillation.lock_remaining,
       consecutive: { ...consecutive },
     };
-    const nextPath = (round as OrchestratorRound & { next_path_id?: string }).next_path_id;
+    // 契约已声明该字段（早先漏了，实现被迫用 as 断言读未声明属性 ——
+// 规格 §3.5 那一条因此在类型层面不可达；2026-10-26 由独立验收方发现）。
+    const nextPath = round.next_path_id;
     if (nextPath !== undefined) draft.nextPathId = nextPath;
   } else if (signalType === 'effective') {
     // §3.6 继续 + 清零震荡状态
@@ -335,6 +342,7 @@ export function decide(
     reason: string;
     rollback_count: number;
     retry_type?: OrchestratorDecision['retry_type'];
+    retry_kind?: OrchestratorDecision['retry_kind'];
     next_path_id?: string;
     locked_type?: OrchestratorDecision['locked_type'];
   } = {
@@ -343,6 +351,7 @@ export function decide(
     rollback_count: draft.rollbackCount,
   };
   if (draft.retryType !== undefined) decision.retry_type = draft.retryType;
+  if (draft.retryKind !== undefined) decision.retry_kind = draft.retryKind;
   if (draft.nextPathId !== undefined) decision.next_path_id = draft.nextPathId;
   if (draft.lockedType !== undefined) decision.locked_type = draft.lockedType;
 
