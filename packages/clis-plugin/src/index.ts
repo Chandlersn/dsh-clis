@@ -1,11 +1,22 @@
 import type { Context } from '@deepseek-ai/cordis';
 
 import { ClisHealthProbe } from './health-probe';
+import { startHotReload } from './hot-reload';
 import { registerIntervener } from './intervene';
 import { ProbeRegistry, scanKnownProbes } from './probe-registry';
 import type { ProbeSource } from './health-supervisor';
 import { registerPromptSection } from './prompt';
 import { registerTools } from './tools';
+
+/**
+ * 热重载监视器的进程级单例。
+ *
+ * 为什么不能放在 apply 里直接启：apply 会在**每次换装**时重跑——监视器若
+ * 随 apply 启动，换装会把旧监视器连同旧 fiber 一起销毁，新 fiber 又启一个，
+ * 下一次换装再销毁……看门狗时有时无。放模块级 globalThis 单例：进程里
+ * 只有一个监视器，换装只换 fiber，看门狗永远活着。
+ */
+const HOT_RELOAD_KEY = Symbol.for('dsh-clis.hot-reload-started');
 
 /**
  * 当前插件版本 —— 探针会带上它，便于确认跑的是哪一版。
@@ -87,6 +98,27 @@ export function apply(ctx: Context): void {
   // 只盯 isError 结果、窗口计数、冷却+signature 双抑制、零 I/O。
   // 注册失败（无 tools 服务）静默跳过 —— 介入是增强，不是链路的一环。
   registerIntervener(ctx);
+
+  // —— 智能热重载看门狗（进程级单例，见上方 HOT_RELOAD_KEY 注释）——
+  //
+  // 只在「生产宿主」启动：ctx.loader 存在说明是真实宿主（单测/冒烟没有）。
+  // 监视安装目录的 bundle 产物，变了就自动换装——无需重启宿主。
+  // deploy.ps1 全量重写 10 个 JS 会在静默期后合并为**一次**换装。
+  const globalFlags = globalThis as unknown as Record<symbol, unknown>;
+  if (globalFlags[HOT_RELOAD_KEY] !== true) {
+    const host = ctx as unknown as { loader?: unknown };
+    if (host.loader !== undefined) {
+      // 安装目录 = 本模块的上一级（dist-package 结构：index.js 在根）
+      const here = import.meta.url.replace(/^file:\/\/\//u, '').replace(/\//gu, '\\');
+      const installDir = here.slice(0, here.lastIndexOf('\\'));
+      startHotReload(ctx, installDir, {
+        info: (m) => ctx.logger?.info?.(m),
+        warn: (m) => ctx.logger?.warn?.(m),
+      });
+      globalFlags[HOT_RELOAD_KEY] = true;
+      ctx.logger?.info?.('clis: 智能热重载看门狗已启动（监视安装目录）');
+    }
+  }
 
   // 装载末尾的统一清理：随插件卸载取消订阅。
   // 用 ctx.effect 而非自己跟踪 disposer —— Cordis 保证 fiber 销毁时回调。
