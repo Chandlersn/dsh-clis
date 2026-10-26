@@ -8,6 +8,8 @@ import type {
 
 import { getDefineTool } from './cordis-shim';
 import { SemiAutoExecutor } from './executor';
+import { HealthNotifier, shapeForAgent } from './health-notifier';
+import { readSeenState, reconcileFindings, writeSeenState } from './health-seen';
 import { HealthSupervisor } from './health-supervisor';
 import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
@@ -458,6 +460,29 @@ export function registerTools(
         const supervisor = new HealthSupervisor(ctx, filtered);
         const outcome = await supervisor.run();
 
+        // —— 双向通报：去重 → 判"对方修了没" → 该升级就升级 ——
+        //
+        // 判据是**下一轮体检该 code 是否还在**：消失即视为已修复，不需要
+        // 对方主动回报（主动回报容易漏报/假报，"问题还在不在"是可观测事实）。
+        const previous = await readSeenState();
+        const escalateAfter = 2;
+        const { dispositions, next } = reconcileFindings(
+          outcome.grouped,
+          previous,
+          escalateAfter,
+        );
+        await writeSeenState(next);
+
+        const hints = new Map<string, string>();
+        for (const item of outcome.grouped) {
+          const hint = item.hints[0];
+          if (hint !== undefined) hints.set(item.code, hint);
+        }
+
+        const notifier = new HealthNotifier(ctx);
+        const notified = notifier.notify(dispositions, hints);
+        const notices = shapeForAgent(notified, escalateAfter);
+
         return toToolJson({
           status: outcome.status,
           probed: filtered.map((item) => item.plugin),
@@ -465,6 +490,8 @@ export function registerTools(
           grouped: outcome.grouped,
           analysis: outcome.analysis,
           reports: outcome.reports,
+          // 双向通报：新问题发给对方插件；连续多轮未修则升级通报用户
+          notices,
         });
       },
     }),
