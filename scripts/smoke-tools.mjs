@@ -1,7 +1,15 @@
 /**
- * 工具冒烟：验证 clis_run / clis_classify / clis_plan 真的注册到宿主工具表。
+ * 工具冒烟：三工具在宿主真实管线内验证，返回值必须是无损 JSON。
  *
- * 这是"接上"的最终判据 —— 前几轮的经验是：服务装载成功 ≠ agent 能调用。
+ * 为什么必须这样测（2026-10-26 审查教训）：
+ * 此前冒烟用 fake tools 直调实现函数，全绿；但真机调用时宿主以
+ * `value is not lossless JSON` 拒绝，工具实际不可用。
+ * 根因是返回值里带 `undefined` 属性的可选字段。
+ *
+ * 因此本脚本做两件事：
+ * 1. 通过插件真实注册路径（registerTools + mock tools 表）拿到 ToolDefinition；
+ * 2. 调用 ToolDefinition.execute()，用**宿主的 isJsonValue** 校验返回值。
+ *    isJsonValue 判非法 ⇒ 真实宿主会拒绝 ⇒ 本测试必须 FAIL。
  */
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -15,18 +23,29 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === '' ? '' : `  (${detail})`}`);
 }
 
-const hostRequire = createRequire(`${DSH_ROOT}/node_modules/@deepseek-ai/dsh/lib/bin.js`);
-const host = await import(pathToFileURL(hostRequire.resolve('@deepseek-ai/cordis')).href);
+// —— 加载宿主的两个关键件：cordis 与 isJsonValue ——
+const hostReq = createRequire(`${DSH_ROOT}/node_modules/@deepseek-ai/dsh/lib/bin.js`);
+const host = await import(pathToFileURL(hostReq.resolve('@deepseek-ai/cordis')).href);
+
+const utilReq = createRequire(`${DSH_ROOT}/node_modules/@deepseek-ai/dsh-util-values/lib/index.js`);
+const util = await import(pathToFileURL(utilReq.resolve('@deepseek-ai/dsh-util-values')).href);
+const isJson = util.isJsonValue;
+check('host isJsonValue 可用', typeof isJson === 'function');
+
 const profileRequire = createRequire(`${PROFILE_DIR}/package.json`);
 
-// 1) 装载四个组件
+// —— 装载四个组件 ——
 const ctx = new host.Context();
-for (const specifier of ['dsh-clis/classifier', 'dsh-clis/strategy', 'dsh-clis/feedback', 'dsh-clis/orchestrator']) {
+for (const specifier of [
+  'dsh-clis/classifier',
+  'dsh-clis/strategy',
+  'dsh-clis/feedback',
+  'dsh-clis/orchestrator',
+]) {
   const mod = await import(pathToFileURL(profileRequire.resolve(specifier)).href);
   await ctx.plugin(mod);
 }
 
-// 2) 确认四个服务就位
 for (const serviceName of [
   'clis.causalClassifier',
   'clis.causalStrategy',
@@ -36,107 +55,123 @@ for (const serviceName of [
   check(`服务就位：${serviceName}`, ctx[serviceName] !== undefined);
 }
 
-// 3) 装载包根（注册工具）—— 它 inject 依赖三个服务 + tools
-//    纯 Node 环境没有 tools 服务，故这里直接调用 registerTools 验证逻辑
-const rootMod = await import(pathToFileURL(profileRequire.resolve('dsh-clis')).href);
-check('包根入口可加载', true);
-check('包根 name 为 clis-tools', rootMod.name === 'clis-tools', String(rootMod.name));
-check(
-  '包根 inject 含 tools 与三个服务',
-  Array.isArray(rootMod.inject) &&
-    rootMod.inject.includes('tools') &&
-    rootMod.inject.includes('clis.causalClassifier'),
-  JSON.stringify(rootMod.inject),
-);
-
-// 4) 用假的 tools 服务验证 registerTools 真的注册了三个工具
-const registered = [];
-const fakeTools = {
+// —— 走插件真实注册路径：包根 apply 会调 registerTools ——
+// 宿主真实环境里 tools 是服务；这里用一个记录型替身接住 ToolDefinition，
+// 目的是拿到**生产代码里那份** definition，而不是测试里另写一份。
+const definitions = {};
+const toolStub = {
   register(definition) {
-    registered.push(definition);
+    definitions[definition.name] = definition;
     return () => {};
   },
 };
-// 把 fakeTools 挂到 ctx 上，模拟宿主的 tools 服务
-Object.defineProperty(ctx, 'tools', { value: fakeTools, configurable: true, writable: true });
+Object.defineProperty(ctx, 'tools', {
+  value: toolStub,
+  configurable: true,
+  writable: true,
+});
 
+const rootMod = await import(pathToFileURL(profileRequire.resolve('dsh-clis')).href);
+check('包根 name 为 clis-tools', rootMod.name === 'clis-tools', String(rootMod.name));
 rootMod.apply(ctx);
 
-check('registerTools 注册了 3 个工具', registered.length === 3, `${registered.length} 个`);
-
-const names = registered.map((tool) => tool.name);
 for (const expected of ['clis_run', 'clis_classify', 'clis_plan']) {
-  check(`注册了工具 ${expected}`, names.includes(expected), names.join(','));
+  check(`注册了工具 ${expected}`, definitions[expected] !== undefined);
 }
 
-// 5) 工具定义结构合法（name/description/parameters/output/execute）
-for (const tool of registered) {
-  check(
-    `${tool.name} 定义完整`,
-    typeof tool.name === 'string' &&
-      typeof tool.description === 'string' &&
-      tool.description.length > 20 &&
-      typeof tool.parameters === 'object' &&
-      typeof tool.output === 'object' &&
-      typeof tool.execute === 'function',
-  );
+/** 四问作答的公共部分。 */
+const UNIDIRECTIONAL = { q1: 'no', q2: 'no', q3: 'yes', q4: 'no' };
+const CYCLIC = { q1: 'no', q2: 'yes', q3: 'no', q4: 'no' };
+const ALL_UNKNOWN = { q1: 'unknown', q2: 'unknown', q3: 'unknown', q4: 'unknown' };
+
+/**
+ * 执行一个工具并用宿主规则校验返回值。
+ *
+ * @param toolName 工具名。
+ * @param args 工具入参。
+ * @param label 断言标签。
+ */
+async function exercise(toolName, args, label) {
+  const definition = definitions[toolName];
+  if (definition === undefined) {
+    check(`${label} 工具存在`, false);
+    return;
+  }
+
+  try {
+    const value = await definition.execute(args, {});
+    const ok = isJson(value);
+    check(`${label} 返回值无损 JSON`, ok);
+
+    if (!ok) {
+      // 指出具体哪个键是 undefined —— 这正是宿主拒绝的原因
+      const offenders = [];
+      const walk = (node, path) => {
+        if (node === undefined) {
+          offenders.push(path);
+          return;
+        }
+        if (Array.isArray(node)) {
+          node.forEach((item, index) => walk(item, `${path}[${index}]`));
+          return;
+        }
+        if (node !== null && typeof node === 'object') {
+          for (const [key, item] of Object.entries(node)) walk(item, `${path}.${key}`);
+        }
+      };
+      walk(value, '$');
+      if (offenders.length > 0) console.log(`     undefined 键：${offenders.join(', ')}`);
+    }
+    return value;
+  } catch (error) {
+    check(`${label} 执行不抛错`, false, String(error?.message ?? error).slice(0, 120));
+    return undefined;
+  }
 }
 
-// 6) 真的调用一次 clis_classify，验证能返回分类结果
-const classifyTool = registered.find((tool) => tool.name === 'clis_classify');
-if (classifyTool !== undefined) {
-  const result = await classifyTool.execute(
-    {
-      description: '火导致热：严格先后、不可逆',
-      q1: 'no',
-      q2: 'no',
-      q3: 'yes',
-      q4: 'no',
-    },
-    {},
-  );
-  check('clis_classify 返回 unidirectional', result.causal_type === 'unidirectional', String(result.causal_type));
-  check('clis_classify 返回置信度', typeof result.confidence === 'number', String(result.confidence));
-  check('clis_classify 返回判断依据', Array.isArray(result.judgment_basis) && result.judgment_basis.length > 0);
-}
+// —— 逐工具、逐形态验证 ——
+const classified = await exercise(
+  'clis_classify',
+  { description: '火导致热：严格先后不可逆', ...UNIDIRECTIONAL },
+  'clis_classify 单向',
+);
+check('clis_classify 判为 unidirectional', classified?.causal_type === 'unidirectional', String(classified?.causal_type));
+check('clis_classify 置信度 ≤ 0.9', (classified?.confidence ?? 1) <= 0.9, String(classified?.confidence));
 
-// 7) 调用 clis_run 跑完整闭环
-const runTool = registered.find((tool) => tool.name === 'clis_run');
-if (runTool !== undefined) {
-  const result = await runTool.execute(
-    {
-      description: '供需与价格互相影响，存在时间延迟',
-      q1: 'no',
-      q2: 'yes',
-      q3: 'no',
-      q4: 'no',
-    },
-    {},
-  );
-  check('clis_run 判为 cyclic', result.causal_type === 'cyclic', String(result.causal_type));
-  check('clis_run 闭环 effective', result.outcome === 'effective', String(result.outcome));
-  check('clis_run 返回 trace', Array.isArray(result.traces) && result.traces.length >= 1);
-}
+const unknownOut = await exercise(
+  'clis_classify',
+  { description: '完全不清楚是什么关系', ...ALL_UNKNOWN },
+  'clis_classify 未知',
+);
+check('clis_classify 未知时不强行归类', unknownOut?.causal_type === 'unknown', String(unknownOut?.causal_type));
+check('clis_classify 未知时要求探索', unknownOut?.needs_exploration === true);
 
-// 8) 调用 clis_plan 出候选路径
-const planTool = registered.find((tool) => tool.name === 'clis_plan');
-if (planTool !== undefined) {
-  const result = await planTool.execute(
-    {
-      description: '供需与价格互相影响',
-      q1: 'no',
-      q2: 'yes',
-      q3: 'no',
-      q4: 'no',
-      forbidden_actions: ['inject_damping'],
-    },
-    {},
-  );
-  check('clis_plan 返回路径', Array.isArray(result.paths) && result.paths.length > 0, `${result.paths?.length} 条`);
-  check('clis_plan 首选为杠杆点', result.paths?.[0]?.variant === 'loop.leverage_point', String(result.paths?.[0]?.variant));
-  const actions = (result.paths ?? []).flatMap((path) => (path.steps ?? []).map((step) => step.action));
-  check('clis_plan 禁止动作未入路径', !actions.includes('inject_damping'));
-}
+const planned = await exercise(
+  'clis_plan',
+  { description: '价格与需求互相影响，有延迟', ...CYCLIC, forbidden_actions: ['inject_damping'] },
+  'clis_plan 带边界',
+);
+check('clis_plan 首选为杠杆点', planned?.paths?.[0]?.variant === 'loop.leverage_point', String(planned?.paths?.[0]?.variant));
+const plannedActions = (planned?.paths ?? []).flatMap((path) => (path.steps ?? []).map((step) => step.action));
+check('clis_plan 禁止动作未进任何 steps', !plannedActions.includes('inject_damping'));
+const dampedPath = (planned?.paths ?? []).find((path) => path.variant === 'loop.damping_injection');
+check('clis_plan 被禁路径 executable=false', dampedPath?.executable === false, String(dampedPath?.executable));
+check(
+  'clis_plan 可执行路径排在不可执行之前',
+  (planned?.paths ?? []).every((path, index, all) =>
+    path.executable === false ? all.slice(index).every((later) => later.executable === false) : true,
+  ),
+);
+
+const ran = await exercise(
+  'clis_run',
+  { description: '预热与命中率互相影响，有延迟', ...CYCLIC },
+  'clis_run 闭环',
+);
+check('clis_run 判为 cyclic', ran?.causal_type === 'cyclic', String(ran?.causal_type));
+check('clis_run 输出 trace', Array.isArray(ran?.traces) && ran.traces.length >= 1);
+check('clis_run 带历史块', typeof ran?.history === 'object' && ran.history !== null);
+check('clis_run 历史含提示', typeof ran?.history?.hint === 'string');
 
 await ctx.fiber.dispose();
 
@@ -146,4 +181,4 @@ if (failures.length > 0) {
   for (const failure of failures) console.error('  -', failure);
   process.exit(1);
 }
-console.log('TOOLS SMOKE PASS — 三个工具注册成功且可调用');
+console.log('TOOLS SMOKE PASS — 三工具经真实注册路径可执行，返回值全部无损 JSON');

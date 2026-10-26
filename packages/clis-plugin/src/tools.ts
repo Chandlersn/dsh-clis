@@ -6,7 +6,8 @@ import type {
   StrategyBoundary,
 } from '@clis/clis-contracts';
 
-import { defineTool as hostDefineTool } from './cordis-shim';
+import { getDefineTool } from './cordis-shim';
+import { toToolJson } from './tool-json';
 import { ClisHistoryStore, fingerprint } from './history';
 
 /**
@@ -26,15 +27,10 @@ import { ClisHistoryStore, fingerprint } from './history';
  * 否则宿主认不出 ToolDefinition。
  */
 
-/** 宿主 `defineTool` 的最小可调用形状（避免引入 dsh-tools 的类型包）。 */
-type HostDefineTool = (options: Record<string, unknown>) => unknown;
-
 /** 宿主 `ctx.tools` 的最小可用形状。 */
 interface HostToolRuntime {
   register(definition: unknown): () => void;
 }
-
-const defineTool = hostDefineTool as unknown as HostDefineTool;
 
 /**
  * 取上下文的工具注册表。
@@ -53,36 +49,6 @@ const SERVICE_CLASSIFIER = 'clis.causalClassifier';
 const SERVICE_STRATEGY = 'clis.causalStrategy';
 const SERVICE_ORCHESTRATOR = 'clis.causalOrchestrator';
 
-/**
- * 剥离 undefined 属性 —— 工具返回值的**强制出口**。
- *
- * 宿主的工具输出管线用 `isJsonValue` 做无损 JSON 校验，规则严格：
- * **任何属性值为 `undefined` 都会让整个返回值被判非法**
- * （`ToolOutputError: value is not lossless JSON`），工具直接不可用。
- * 而契约里 `exploration_reason`、`suggested_rollback`、`sub_modules`
- * 这类字段本来就是可选的，服务返回时经常带 `字段名: undefined`。
- *
- * 所以每个工具返回前必须过这一关：把 undefined 值收敛成"键不存在"。
- * 递归处理嵌套对象与数组。
- *
- * @param value 待返回的对象。
- * @returns 剥离 undefined 后的纯 JSON 对象。
- */
-function toToolJson<T>(value: T): T {
-  if (Array.isArray(value)) {
-    return value.map((item) => toToolJson(item)) as unknown as T;
-  }
-  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
-    const result: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if (item === undefined) continue;
-      result[key] = toToolJson(item);
-    }
-    return result as unknown as T;
-  }
-  // 函数、Map/Set 等宿主管线一律拒绝；这里不做转换，让它们自然失败在类型上。
-  return value;
-}
 
 /** 四问参数名到契约字段的映射。 */
 const FOUR_QUESTION_PROPS = {
@@ -155,6 +121,7 @@ function questionParams(): Record<string, object> {
  * @param ctx 已具备 tools 服务的上下文。
  */
 export function registerTools(ctx: Context): void {
+  const defineTool = getDefineTool();
   const history = new ClisHistoryStore();
 
   // —— clis_run：完整闭环 ——

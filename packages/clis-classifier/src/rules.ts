@@ -405,6 +405,25 @@ function classifyValidated(
     });
   }
 
+  // 四问作答回显：让每一次判断的**输入**都可审计。
+  //
+  // 为什么必须有：此前 evidence 只回显"哪一问答了 yes"，答 unknown 的题
+  // 完全不出现在输出里 —— 而 unknown 恰恰是扣分来源。复核者看不到
+  // Q2 答的是 unknown，就无法判断是"规则错了"还是"作答错了"。
+  // 四问由调用方（agent）填写，答错是这套系统最可能出错的地方，必须可见。
+  for (const state of evaluated.all) {
+    if (state.answer === 'unknown') {
+      evidence.push(
+        ruleEvidence(
+          'R5',
+          `${state.spec.id} 作答为「未定」：${state.spec.text}（不指向任何类型，扣 ${UNKNOWN_PENALTY}）`,
+          causalType,
+          UNKNOWN_PENALTY,
+        ),
+      );
+    }
+  }
+
   const candidates = decision.kind === 'r4' ? buildCandidates(unknownCount) : undefined;
 
   const primaryRule: RuleId =

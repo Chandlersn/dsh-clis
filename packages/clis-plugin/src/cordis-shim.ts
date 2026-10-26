@@ -160,13 +160,23 @@ export const RegistryService = host.RegistryService;
 export const Inject = host.Inject;
 
 /**
- * 宿主的 defineTool —— 必须用宿主那一份。
+ * 取宿主的 `defineTool` —— **懒加载**，必须用宿主那一份。
  *
  * 工具定义会经过宿主的参数校验与渲染管线；用错版本会造出
  * 宿主认不出的 ToolDefinition。与 Service 同理，只认宿主那份。
  *
- * @type {Function}
+ * 为什么做成函数而不是模块级常量：
+ * 模块加载期就 `loadHost('@deepseek-ai/dsh-tools')` 会让**任何**导入本模块的
+ * 入口都强依赖宿主工具包 —— 四个组件入口本该能独立装载（只需 cordis），
+ * 被这条副作用拖着一起失败，单元测试也不得不先造宿主环境。
+ * 改成第一次调 registerTools 时才解析，组件入口恢复零负担。
+ *
+ * @returns 宿主的 defineTool 函数。
  */
-export const defineTool = loadHost('@deepseek-ai/dsh-tools').defineTool;
+export function getDefineTool(): (options: Record<string, unknown>) => unknown {
+  return loadHost('@deepseek-ai/dsh-tools').defineTool as (
+    options: Record<string, unknown>,
+  ) => unknown;
+}
 
 export default host;
