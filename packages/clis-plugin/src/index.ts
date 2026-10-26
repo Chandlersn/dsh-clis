@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 
 import { ClisHealthProbe } from './health-probe';
+import { registerIntervener } from './intervene';
 import { ProbeRegistry, scanKnownProbes } from './probe-registry';
 import type { ProbeSource } from './health-supervisor';
 import { registerPromptSection } from './prompt';
@@ -81,6 +82,11 @@ export function apply(ctx: Context): void {
 
   registerTools(ctx, sources);
   registerPromptSection(ctx);
+
+  // 反馈介入：agent 碰到失败反馈的那一刻，递上一把尺子（见 intervene.ts）。
+  // 只盯 isError 结果、窗口计数、冷却+signature 双抑制、零 I/O。
+  // 注册失败（无 tools 服务）静默跳过 —— 介入是增强，不是链路的一环。
+  registerIntervener(ctx);
 
   // 装载末尾的统一清理：随插件卸载取消订阅。
   // 用 ctx.effect 而非自己跟踪 disposer —— Cordis 保证 fiber 销毁时回调。
