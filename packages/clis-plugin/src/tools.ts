@@ -8,8 +8,9 @@ import type {
 
 import { getDefineTool } from './cordis-shim';
 import { SemiAutoExecutor } from './executor';
-import { HealthNotifier, shapeForAgent } from './health-notifier';
+import { deriveNotices, HealthNotifier, shapeForAgent } from './health-notifier';
 import { readSeenState, reconcileFindings, writeSeenState } from './health-seen';
+import { buildScope, listPlugins } from './plugin-scope';
 import { HealthSupervisor } from './health-supervisor';
 import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
@@ -424,16 +425,16 @@ export function registerTools(
     }),
   );
 
-  // —— clis_probe：跨插件体检 + 结构分析 ——
+  // —— clis_probe：系统级插件监督 ——
   toolRuntime(ctx).register(
     defineTool({
       name: 'clis_probe',
       description:
-        '体检已注册健康探针的插件，并把发现的问题按因果结构归类，而不是给一串警告列表。用于判断"这些警告是不是同一个环的不同切面"——若是，逐条修都会失败，该改的是共同产生环节。返回各插件原始发现、按类型聚合后的计数，以及结构性结论（单向/回路/对偶/嵌套）和方向建议。',
+        '系统级插件监督：枚举宿主全部插件，收集各自健康探针的原始信号，用因果结构分析判断"这些散乱问题之间是什么关系"，并只投递对方自查报不出来的结论（结构诊断 + 覆盖缺口）。**不转发对方自己已经显示的逐条警告** —— 那些在各自面板里已有，重复搬运只是噪音。用于回答"某个插件反复出问题、修了又回来，到底是几个问题还是一个环"这类跨问题判断。',
       parameters: {
         only: {
           type: 'array',
-          description: '可选：只检查这些插件名；省略则检查全部已注册探针。',
+          description: '可选：只监督这些插件 id；省略则枚举宿主全部活动插件。',
           items: { type: 'string' },
         },
       },
@@ -442,56 +443,91 @@ export function registerTools(
         render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(rawArgs: Record<string, unknown>) {
-        const sources = healthSources();
+        // —— 第一步：枚举整个系统的插件列表（不依赖任何写死的名单）——
+        const plugins = listPlugins(ctx);
+        const rawSources = healthSources();
+        const { scope, activeTotal, externalTotal, uncovered } = buildScope(plugins, rawSources);
+
+        const only = rawArgs.only as readonly string[] | undefined;
+        const sources =
+          only === undefined
+            ? scope.sources
+            : scope.sources.filter((item) => only.some((id) => id === item.plugin));
+
+        const supervision = {
+          active_plugins: activeTotal,
+          user_plugins: externalTotal,
+          covered: sources.length,
+          uncovered_in_supervision: uncovered,
+        };
+
         if (sources.length === 0) {
           return toToolJson({
             status: 'ok',
-            message: '没有任何插件注册健康探针：目前只有 CLIS 自己实现了 HealthProbe',
-            hint: '其他插件需要实现 HealthProbe 接口才会被纳入互查（memory-manager 的 memory_check 可包一层）',
-            grouped: [],
-            reports: [],
+            supervision,
+            message: '当前没有任何插件提供健康探针：系统处于全盲状态',
+            hint:
+              '各插件需实现 probe() 并 emit clis/register-probe 才会被纳入监督；' +
+              'CLIS 自身已实现，可作为实现范例',
+            notices: [],
           });
         }
 
-        const only = rawArgs.only as readonly string[] | undefined;
-        const filtered =
-          only === undefined ? sources : sources.filter((item) => only.includes(item.plugin));
-
-        const supervisor = new HealthSupervisor(ctx, filtered);
+        const supervisor = new HealthSupervisor(ctx, sources);
         const outcome = await supervisor.run();
 
-        // —— 双向通报：去重 → 判"对方修了没" → 该升级就升级 ——
+        // —— 第二步：只提炼结构诊断，不转发对方的逐条 findings ——
         //
-        // 判据是**下一轮体检该 code 是否还在**：消失即视为已修复，不需要
-        // 对方主动回报（主动回报容易漏报/假报，"问题还在不在"是可观测事实）。
+        // 这是与早先实现的关键差别（用户 2026-10-26 指出重复问题）：
+        // memory-manager 的 R14/R3 在它自己面板里已有，转发回它自己的
+        // 收件箱只是重复。CLIS 的增量是"这些警告是什么结构"。
+        //
+        // 注意第二参数传空数组：v2 不再把"没探针的插件"报成缺口
+        // （那是能力地图，走 supervision.pending_integration）。
+        const notices = deriveNotices(outcome, []);
+
+        // —— 第三步：去重 + 判"对方修了没" ——
+        // 判据仍是"下一轮该 code 是否还在"，不依赖对方回报。
         const previous = await readSeenState();
         const escalateAfter = 2;
+        const dispositionInput = notices.map((notice) => ({
+          code: notice.code,
+          severity: notice.severity,
+          message: notice.message,
+          plugins: notice.plugins,
+          count: notice.evidence.length,
+        }));
         const { dispositions, next } = reconcileFindings(
-          outcome.grouped,
+          dispositionInput,
           previous,
           escalateAfter,
         );
         await writeSeenState(next);
 
-        const hints = new Map<string, string>();
-        for (const item of outcome.grouped) {
-          const hint = item.hints[0];
-          if (hint !== undefined) hints.set(item.code, hint);
-        }
-
         const notifier = new HealthNotifier(ctx);
-        const notified = notifier.notify(dispositions, hints);
-        const notices = shapeForAgent(notified, escalateAfter);
+        const notified = notifier.notify(notices);
+        const shaped = shapeForAgent(notified, outcome.grouped);
 
         return toToolJson({
           status: outcome.status,
-          probed: filtered.map((item) => item.plugin),
+          // 监督覆盖面：用户一眼看到"全系统有多少插件、多少在被监督"
+          supervision,
+          probed: sources.map((item) => item.plugin),
           probe_errors: outcome.probeErrors,
-          grouped: outcome.grouped,
+          // 结构判断（CLIS 的核心产出）
           analysis: outcome.analysis,
-          reports: outcome.reports,
-          // 双向通报：新问题发给对方插件；连续多轮未修则升级通报用户
-          notices,
+          // 注意：分组计数保留，但它只是**证据**，不是投递项
+          evidence: outcome.grouped.map((item) => ({
+            code: item.code,
+            count: item.count,
+            plugins: item.plugins,
+          })),
+          notices: shaped,
+          dispositions: dispositions.map((item) => ({
+            code: item.code,
+            disposition: item.disposition,
+            rounds: item.roundsUnresolved,
+          })),
         });
       },
     }),
