@@ -6,3 +6,6 @@ coverage/
 *.log
 *.tmpdir/
 bundle/
+dist-package/
+# 生成物：验收运行的原始日志，体积大且可再生
+reports/acceptance-runs/

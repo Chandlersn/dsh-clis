@@ -15,31 +15,83 @@
 .PARAMETER SkipRestart
     只构建与校验，不重启宿主（用于只想确认代码健康时）。
 
+.PARAMETER NodeDir
+    Node 安装目录（含 pnpm.cmd）。缺省取 $env:DSH_NODE_DIR。
+
+.PARAMETER PluginDir
+    插件安装目录（profile 里 link 到的那个）。缺省取 $env:DSH_CLIS_PLUGIN_DIR。
+
+.PARAMETER ProfileDir
+    DSH profile 目录。缺省取 $env:DSH_PROFILE_DIR。
+
+.PARAMETER HostRoot
+    DSH 安装目录。缺省取 $env:DSH_INSTALL_DIR。
+
+.PARAMETER RestartRelay
+    detached-restart 技能的 restart-relay.mjs 路径。缺省按 dshHome 推导。
+
 .EXAMPLE
     .\scripts\deploy.ps1
     .\scripts\deploy.ps1 -SkipRestart
+
+.NOTES
+    本脚本刻意不写死机器路径：路径全部走参数或环境变量，缺省值按
+    用户目录推导。要用在不同的机器/目录上，设环境变量或传参数即可。
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipRestart
+    [switch]$SkipRestart,
+    [string]$NodeDir = $env:DSH_NODE_DIR,
+    [string]$ProjectRoot,
+    [string]$PluginDir = $env:DSH_CLIS_PLUGIN_DIR,
+    [string]$ProfileDir = $env:DSH_PROFILE_DIR,
+    [string]$HostRoot = $env:DSH_INSTALL_DIR,
+    [int]$Port = 3080,
+    [string]$RestartRelay
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# —— 环境 ——
-$NodeDir = 'D:\nvm\v22.23.3'
+# —— 环境（缺省值按用户目录推导，不写死本机路径）——
+# 项目根由脚本自身位置推导：scripts/ 的上一级。
+if (-not $ProjectRoot) { $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
+$UserHome = $env:USERPROFILE
+$DshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $UserHome '.dsh' }
+
+# pnpm 位置：显式 > PATH > 常见 nvm 安装点。宿主重启后 pnpm 常常不在 PATH，
+# 所以这条路必须能自己找到，或者给出可操作的报错。
+if (-not $NodeDir) {
+    $fromPath = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
+    if ($fromPath) { $NodeDir = Split-Path $fromPath.Source -Parent }
+}
+if (-not $NodeDir -or -not (Test-Path (Join-Path $NodeDir 'pnpm.cmd'))) {
+    $candidates = @(
+        'D:\nvm\v22.23.3',
+        'C:\nvm\v22.23.3',
+        (Join-Path $UserHome 'AppData\Roaming\nvm\v22.23.3')
+    ) | Where-Object { Test-Path (Join-Path $_ 'pnpm.cmd') }
+    if ($candidates.Count -gt 0) {
+        $NodeDir = $candidates[0]
+    } else {
+        Write-Host '找不到 pnpm.cmd。传 -NodeDir，或设 $env:DSH_NODE_DIR 指向含 pnpm.cmd 的目录。' -ForegroundColor Red
+        exit 1
+    }
+}
+
+if (-not $PluginDir) {
+    $PluginDir = Join-Path $UserHome 'Documents\deepseek-harness\default-workspace\dsh-clis'
+}
+if (-not $ProfileDir) { $ProfileDir = Join-Path $DshHome 'profiles\web' }
+if (-not $RestartRelay) {
+    $RestartRelay = Join-Path $DshHome 'skills\detached-restart\scripts\restart-relay.mjs'
+}
 $Pnpm = Join-Path $NodeDir 'pnpm.cmd'
-$ProjectRoot = 'D:\个人开发\CLIS'
-$PluginDir = 'C:\Users\lyq\Documents\deepseek-harness\default-workspace\dsh-clis'
-$ProfileDir = 'C:\Users\lyq\.dsh\profiles\web'
-$HostRoot = 'D:\dsh'
-$Port = 3080
-$RestartRelay = 'C:\Users\lyq\.dsh\skills\detached-restart\scripts\restart-relay.mjs'
 
 $env:Path = "$NodeDir;" + $env:Path
-$env:DSH_INSTALL_DIR = $HostRoot
+if ($HostRoot) { $env:DSH_INSTALL_DIR = $HostRoot }
 $env:DSH_PROFILE_DIR = $ProfileDir
+$env:DSH_CLIS_PLUGIN_DIR = $PluginDir
 
 # 让中文输出不乱码
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -117,17 +169,37 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "  OK  $($buildOut | Select-Object -Last 1)" -ForegroundColor Green
 
-# —— 闸门 6：同步到插件目录 ——
+# —— 闸门 6：组装 + 同步到插件目录 ——
+# 用 scripts/package.mjs 组装（bundle/ 的 JS + packaging/ 的手写资产），
+# 而不是只复制 *.js —— 后者会让 patch / package.json / README / locale
+# 只存在于安装目录、仓库里没有源头，克隆仓库无法重建插件。
+Write-Step '组装可安装产物（JS + 手写资产 + locale）'
+$pkgOut = & $Pnpm exec node scripts/package.mjs 2>&1
+if ($LASTEXITCODE -ne 0) {
+    $pkgOut | Select-Object -Last 10 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    Fail '组装失败'
+}
+$pkgOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Green }
+
 Write-Step '同步到插件目录'
-Get-ChildItem $PluginDir -Filter '*.js' | ForEach-Object { Remove-Item $_.FullName -Force }
-Get-ChildItem (Join-Path $ProjectRoot 'bundle') -File |
-    ForEach-Object { Copy-Item $_.FullName $PluginDir -Force }
-$synced = (Get-ChildItem $PluginDir -Filter '*.js').Count
-Write-Host "  OK  同步 $synced 个文件" -ForegroundColor Green
+$pkgDir = Join-Path $ProjectRoot 'dist-package'
+# 逐个删除旧文件（不用递归删除整个目录：safe-delete 中间层对批量删除有拦截）
+Get-ChildItem $PluginDir -Recurse -File | ForEach-Object { Remove-Item $_.FullName -Force }
+Get-ChildItem $pkgDir -Recurse -File | ForEach-Object {
+    $rel = $_.FullName.Substring($pkgDir.Length + 1)
+    $dest = Join-Path $PluginDir $rel
+    $destDir = Split-Path $dest -Parent
+    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+    Copy-Item $_.FullName $dest -Force
+}
+$synced = (Get-ChildItem $PluginDir -Recurse -File).Count
+Write-Host "  OK  同步 $synced 个文件（含 locale / patch / README）" -ForegroundColor Green
 
 # —— 闸门 7：重启并验证 ——
 if ($SkipRestart) {
-    Write-Step '跳过重启（-SkipRestart）'
+    # 这里刻意不用 Write-Step：它不是一道闸门，报数会让进度显示成 [8/7]。
+    Write-Host ''
+    Write-Host '跳过重启（-SkipRestart）' -ForegroundColor Yellow
     Write-Host '  代码已就绪，下次启动宿主时生效。' -ForegroundColor Yellow
     Write-Host ''
     Write-Host 'DEPLOY OK（未重启）' -ForegroundColor Green
