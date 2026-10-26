@@ -8,6 +8,8 @@ import type {
 
 import { getDefineTool } from './cordis-shim';
 import { SemiAutoExecutor } from './executor';
+import { HealthSupervisor } from './health-supervisor';
+import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
 import { ClisHistoryStore, fingerprint } from './history';
 
@@ -121,7 +123,10 @@ function questionParams(): Record<string, object> {
  *
  * @param ctx 已具备 tools 服务的上下文。
  */
-export function registerTools(ctx: Context): void {
+export function registerTools(
+  ctx: Context,
+  healthSources: () => ProbeSource[] = () => [],
+): void {
   const defineTool = getDefineTool();
   const history = new ClisHistoryStore();
 
@@ -412,6 +417,54 @@ export function registerTools(ctx: Context): void {
               variant: sub.variant,
             })),
           })),
+        });
+      },
+    }),
+  );
+
+  // —— clis_probe：跨插件体检 + 结构分析 ——
+  toolRuntime(ctx).register(
+    defineTool({
+      name: 'clis_probe',
+      description:
+        '体检已注册健康探针的插件，并把发现的问题按因果结构归类，而不是给一串警告列表。用于判断"这些警告是不是同一个环的不同切面"——若是，逐条修都会失败，该改的是共同产生环节。返回各插件原始发现、按类型聚合后的计数，以及结构性结论（单向/回路/对偶/嵌套）和方向建议。',
+      parameters: {
+        only: {
+          type: 'array',
+          description: '可选：只检查这些插件名；省略则检查全部已注册探针。',
+          items: { type: 'string' },
+        },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      async execute(rawArgs: Record<string, unknown>) {
+        const sources = healthSources();
+        if (sources.length === 0) {
+          return toToolJson({
+            status: 'ok',
+            message: '没有任何插件注册健康探针：目前只有 CLIS 自己实现了 HealthProbe',
+            hint: '其他插件需要实现 HealthProbe 接口才会被纳入互查（memory-manager 的 memory_check 可包一层）',
+            grouped: [],
+            reports: [],
+          });
+        }
+
+        const only = rawArgs.only as readonly string[] | undefined;
+        const filtered =
+          only === undefined ? sources : sources.filter((item) => only.includes(item.plugin));
+
+        const supervisor = new HealthSupervisor(ctx, filtered);
+        const outcome = await supervisor.run();
+
+        return toToolJson({
+          status: outcome.status,
+          probed: filtered.map((item) => item.plugin),
+          probe_errors: outcome.probeErrors,
+          grouped: outcome.grouped,
+          analysis: outcome.analysis,
+          reports: outcome.reports,
         });
       },
     }),

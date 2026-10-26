@@ -132,3 +132,11 @@ export type {
   OrchestratorService,
   OrchestratorRunOptions,
 } from './service';
+
+export { HEALTH_SEVERITIES, HEALTH_PROBE_SERVICE, deriveStatus } from './health';
+export type {
+  HealthSeverity,
+  HealthFinding,
+  HealthReport,
+  HealthProbe,
+} from './health';

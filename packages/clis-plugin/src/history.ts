@@ -69,14 +69,43 @@ interface HistoryFileShape {
   readonly records: Record<string, ClisHistoryRecord>;
 }
 
+/** 历史状态（供健康探针只读使用）。 */
+export type ClisHistoryState = HistoryFileShape;
+
 /**
  * 历史文件路径。
  *
  * @returns 绝对路径。
  */
-function historyFilePath(): string {
+export function historyFilePath(): string {
   const root = process.env.DSH_HOME ?? join(homedir(), '.dsh');
   return join(root, HISTORY_REL_PATH);
+}
+
+/**
+ * 只读地加载整份历史状态 —— 供健康探针使用。
+ *
+ * 与 `ClisHistoryStore` 的区别：**不建目录、不写文件、损坏也不备份**，
+ * 纯粹读。探针必须是只读的，否则被别的插件调用时会意外改数据。
+ *
+ * @returns 历史状态；文件不存在或不可解析时返回 undefined。
+ */
+export async function readHealthState(): Promise<ClisHistoryState | undefined> {
+  try {
+    const raw = await readFile(historyFilePath(), 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      (parsed as HistoryFileShape).version === HISTORY_FILE_VERSION &&
+      typeof (parsed as HistoryFileShape).records === 'object'
+    ) {
+      return parsed as HistoryFileShape;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**

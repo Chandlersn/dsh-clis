@@ -1,7 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis';
 
+import { ClisHealthProbe } from './health-probe';
+import type { ProbeSource } from './health-supervisor';
 import { registerPromptSection } from './prompt';
 import { registerTools } from './tools';
+
+/**
+ * 当前插件版本 —— 探针会带上它，便于确认跑的是哪一版。
+ *
+ * 与 package.json 的 version 手动保持一致：打包时不做注入，
+ * 因为 bundle 里读 package.json 会引入额外的路径依赖。
+ */
+const PLUGIN_VERSION = '0.3.0';
 
 /**
  * CLIS 包根入口 —— 注册 agent 工具与系统提示段，不装载四个组件。
@@ -51,7 +61,14 @@ export const inject: string[] = [
  * @param ctx 插件上下文。
  */
 export function apply(ctx: Context): void {
-  registerTools(ctx);
+  // CLIS 自己的健康探针：让它能被 clis_probe 自己检查，也示范了
+  // HealthProbe 的实现方式 —— 其他插件照这个形状实现即可被纳入互查。
+  const probe = new ClisHealthProbe(ctx, PLUGIN_VERSION);
+  const sources = (): ProbeSource[] => [
+    { plugin: 'dsh-clis', probe: () => probe.probe() },
+  ];
+
+  registerTools(ctx, sources);
   registerPromptSection(ctx);
 }
 
