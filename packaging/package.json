@@ -3,8 +3,8 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "CLIS 因果分层智能系统（DSH 常驻插件）：四个可独立开关的因果推理组件，加系统级插件监督——枚举全系统插件、收集健康探针、只投递结构判断。",
-  "keywords": ["dsh", "dsh-plugin", "cordis", "causal", "clis", "health-probe", "supervision"],
+  "description": "DSH 插件：agent 碰到失败反馈时介入（判因果结构，避免方向性错误），并监督全系统插件的健康——枚举插件、收集探针、只投递结构判断。介入有效性可测（clis_metrics）。",
+  "keywords": ["dsh", "dsh-plugin", "cordis", "causal", "clis", "health-probe", "supervision", "feedback-intervention"],
   "license": "MIT",
   "engines": {
     "node": ">=22"

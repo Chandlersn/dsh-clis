@@ -1,23 +1,33 @@
 # CLIS · Causal Layered Intelligence System
 
-A resident plugin for DSH (DeepSeek Harness). It **classifies what kind of causal
-structure a problem has, then picks a strategy accordingly** — and detects when it
-classified wrong, so it can roll back.
+[中文](README.md) | English
 
-This repository contains **two things with different evidence strength**. Please
-read them separately:
+A DSH (DeepSeek Harness) plugin that does two things:
 
-| | System-level plugin supervision | Causal reasoning library |
-|---|---|---|
-| What it is | Enumerates every plugin in the host, collects their health probes, and delivers only **structural conclusions** | Four-question causal typing → strategy match → execute → feedback → rollback |
-| Evidence | Forced into existence by real use, with reproducible findings | 602 tests + 7 hard constraints verified |
-| What those tests prove | It catches real problems | **Engineering rigor — not "more effective than handling it directly"** |
+**One: it intervenes when problems and feedback show up.** It does not change
+what the agent set out to do. When failures start repeating (same tool failing
+≥2 times), CLIS injects a structural-judgement hint before the result reaches
+the model — this failure pattern may not be a one-off but a loop (fixes bounce
+back), a duality (fixing one side pulls the other), or a one-way chain (trace
+the earliest cause instead of pushing at the effect). Misjudge the direction
+and the effort is wasted. Four gates keep the intervention from being noise:
+failures only, windowed counting, cooldown + dedup, silent budget. **And its
+usefulness is measurable**: `clis_metrics` reports how many hints were injected
+and how many the agent adopted.
 
-> **The causal reasoning layer has no controlled experiment behind its core claim.**
-> The 602 tests prove the implementation matches its spec, not that it is valuable.
-> Verify it yourself before relying on it. The supervision layer is a different
-> story — it caught problems I did not anticipate (see
-> `reports/open-source-readiness.md`).
+**Two: it makes every plugin in the host visible to the rest.** It enumerates
+all host plugins, collects their health probes, and merges scattered warnings
+into structural conclusions ("these 5 warnings are facets of one feedback loop;
+fixing them one by one will fail"). The automatic layer covers every non-builtin
+plugin with zero cooperation; any plugin can adopt a deeper domain signal by
+exporting one `healthProbe`.
+
+Honest disclosure: the causal classifier is **deterministic rule scoring** (the
+caller fills in four questions first), not semantic understanding. The strategy
+paths and attribution claims have **no controlled experiment behind them** —
+the tests prove engineering rigor, not "more effective than handling it
+directly". The supervision and intervention layers have real-machine evidence.
+See [reports/open-source-readiness.md](reports/open-source-readiness.md).
 
 ## Layout
 
@@ -76,10 +86,19 @@ contracts package** — never on each other's implementation:
    not "progress" — the loop returns "authorization required" instead of retrying.
 4. **Tight host coupling**: useful only inside DSH; it does not run standalone.
 
-## Plugin layer: four agent tools
+## Plugin layer: five agent tools
 
-`clis_run` (full loop), `clis_classify` (type only), `clis_plan` (paths only),
-`clis_probe` (system-level supervision). A system-prompt section is injected as well.
+| Tool | What it does |
+| --- | --- |
+| `clis_run` | Full loop: classify → match path → execute → feedback → roll back if needed |
+| `clis_classify` | Causal type only |
+| `clis_plan` | Candidate paths only |
+| `clis_probe` | System-level supervision: enumerate plugins, collect probes, deliver structural diagnoses |
+| `clis_metrics` | Intervention effectiveness: hints injected vs adopted by the agent |
+
+A system-prompt section is injected as well (passive reminder), and a
+structural-judgement hint is **actively injected** when tool failures repeat
+(see the first item up top).
 
 `clis_probe` supervises on two layers. The **automatic layer needs no cooperation
 from plugins and covers every non-builtin plugin**; a plugin joins the
@@ -117,10 +136,10 @@ node scripts/package.mjs      # assemble the installable directory → dist-pack
 
 | Item | Value |
 | --- | --- |
-| Tests | 46 files / 602 cases, all green |
+| Tests | 49 files / 692 cases, all green |
 | Type check | `tsc` exit 0 |
 | Hard constraints | 7/7 PASS |
-| Independent verification | classifier / strategy / feedback reasonably covered; **orchestrator has none** (see `reports/system-verification.md` §4) |
+| Independent verification | All four components covered — an independent reviewer wrote 60 assertions for the orchestrator reading only the spec, **found no implementation-vs-spec violations**, but 7 spec/contract issues (2 contract defects fixed) |
 
 ## License
 
