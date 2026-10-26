@@ -65,6 +65,25 @@ README、LICENSE、四组件 locale）。缺任何一项它就退出非零 —�
 | 组件入口在模块期解析宿主包 | 装载失败或拿到错误的宿主 | 必须惰性解析（`getDefineTool()` 之类） |
 | 工具返回值含 `undefined` | 宿主报 `value is not lossless JSON`，工具不可用 | 宿主用 `isJsonValue` 校验；用 `toToolJson` 递归剔除 |
 | 组件被重复注册 | 服务名冲突或双份实例 | 包根入口只注册工具与提示段，**不装载四个组件**（由 patch 四行各自装载） |
+| `cpSync` 复制**目录** | 进程直接崩，退出码 `-1073740791`（`0xC0000409`） | 本机 fs 中间层拦截递归目录复制。`scripts/package.mjs` 因此改成逐文件复制；`bundle.mjs` 同理回避 `rmSync` |
+
+## 开发环境注意（Windows 本机）
+
+1. **判原生命令成败只认 `$LASTEXITCODE`，且别让它过管道。**
+   `命令 | Select-Object` 之后退出码不可信；命令的 stderr（git 的 CRLF 警告、进度）
+   会被 PowerShell 当成 `NativeCommandError` 报出，**使成功的命令显示成失败**。
+   写 `命令 2> $errFile` 再读 `$LASTEXITCODE`，stderr 只在真失败时才看。
+   判据永远是外部结果（提交在不在 `git log` 里、工作区干不干净），不是退出码本身。
+
+2. **`pnpm` 可能不在 PATH 里**（宿主重启后）。`deploy.ps1` 已能自行查找
+   （PATH → 常见 nvm 位置），手动调用时用绝对路径或设 `$env:DSH_NODE_DIR`。
+
+3. **vitest 报 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`**：宿主自带 safe-delete 中间层
+   拦截对 `node_modules/.vitest-cache` 的批量清理（条目数 > 50 即要求确认）。
+   删掉该缓存目录后重跑；**不要**为此关闭删除保护。
+
+4. **PowerShell 脚本必须存 UTF-8 BOM**，否则中文被按 GBK 读、解析报
+   `表达式或语句中包含意外的标记`。`deploy.ps1` 改完记得确认 BOM 还在。
 
 ## 版本约定
 
