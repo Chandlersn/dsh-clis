@@ -66,12 +66,16 @@ export interface NotifyOutcome {
  * 关键：**只产出对方自查报不出来的结论**。
  *
  * @param outcome 互查结果。
- * @param uncovered 没有探针的活动插件。
+ * @param uncovered 没有探针的活动插件（v2 起恒传空数组，覆盖缺口已改为能力地图）。
+ * @param persisting 上一轮报过、这一轮仍在的 code —— **回路的唯一正确判据**。
+ *                   由调用方从历史状态算出：轮内出现多次只是"同一规则在多处
+ *                   触发"，与"修了又回来"无关（真机踩过这个误判）。
  * @returns 结构诊断列表。
  */
 export function deriveNotices(
   outcome: ProbeOutcome,
   uncovered: readonly string[],
+  persisting: readonly string[] = [],
 ): StructuralNotice[] {
   const notices: StructuralNotice[] = [];
 
@@ -85,6 +89,25 @@ export function deriveNotices(
       plugins: uncovered,
       evidence: uncovered.map((id) => `未覆盖：${id}`),
       targets: uncovered,
+    });
+  }
+
+  // —— 1b. 跨轮复发：上一轮报过、这一轮仍在 —— 这是真正的回路 ——
+  //
+  // 为什么单独列：这个判断只有"掌握历史"的调用方能做。轮内出现多次
+  // （同一规则在两处触发）看起来像"反复"，但完全不是一回事 ——
+  // 把两者混同会让"两条车道各报一次限流"被判成"存在反馈环"。
+  if (persisting.length > 0) {
+    notices.push({
+      code: 'structure.recurring',
+      severity: 'warn',
+      message:
+        `${persisting.length} 条问题在上一轮已经报过、这一轮仍然存在：` +
+        `上一轮的修复没有生效，或者根本没有被执行`,
+      hint: '不要用同样的方式再修一遍：先确认上一轮的判断是否成立，或者换一个作用点',
+      plugins: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
+      evidence: persisting.map((code) => `跨轮仍在：${code}`),
+      targets: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
     });
   }
 
@@ -102,26 +125,26 @@ export function deriveNotices(
   }
 
   // —— 3. 结构诊断：这些警告之间的关系，这是 CLIS 的核心增量 ——
+  //
+  // 触发条件是**问题种类 > 1** —— 只有"多种问题之间是什么关系"才叫结构。
+  // 单一 code 即使触发多次（两条车道各一次、两个文件各超一次）也只是
+  // "同一条规则在多处触发"，直接修就行；把它说成"结构"是过度解读，
+  // 真机上就因此把"两条车道各报一次限流"误判成了"反馈环"。
   const analysis = outcome.analysis;
-  if (analysis !== undefined && outcome.grouped.length > 0) {
+  if (analysis !== undefined && outcome.grouped.length > 1) {
     const evidence = outcome.grouped.map(
       (item) => `${item.code} ×${item.count}（${item.plugins.join('、')}）`,
     );
 
-    // 只有成规模的问题才值得说结构：单条问题直接修就行，说"结构"是过度解读
-    const worthStructural = outcome.grouped.length > 1 || outcome.grouped.some((i) => i.count > 1);
-
-    if (worthStructural) {
-      notices.push({
-        code: `structure.${analysis.causalType}`,
-        severity: analysis.confidence >= 0.7 ? 'warn' : 'info',
-        message: analysis.summary,
-        ...(analysis.direction !== undefined ? { hint: analysis.direction } : {}),
-        plugins: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
-        evidence,
-        targets: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
-      });
-    }
+    notices.push({
+      code: `structure.${analysis.causalType}`,
+      severity: analysis.confidence >= 0.7 ? 'warn' : 'info',
+      message: analysis.summary,
+      ...(analysis.direction !== undefined ? { hint: analysis.direction } : {}),
+      plugins: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
+      evidence,
+      targets: [...new Set(outcome.grouped.flatMap((item) => item.plugins))],
+    });
   }
 
   return notices;

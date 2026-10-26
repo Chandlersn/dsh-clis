@@ -85,9 +85,54 @@ describe('核心：不转发对方自查的逐条问题', () => {
 
     // 关键断言：没有任何一条是 memory.* 这种对方自查代号
     expect(notices.every((item) => !item.code.startsWith('memory.'))).toBe(true);
-    // 只有一条结构诊断
+    // 两类问题同源 → 一条结构诊断
     expect(notices).toHaveLength(1);
     expect(notices[0]?.code).toBe('structure.cyclic');
+  });
+
+  it('单一 code 轮内触发多次 ≠ 回路（真机踩到的误判）', () => {
+    // workbuddy-channels 两条车道各报一次同一条规则 → count=2。
+    // 首版据此判"存在反馈环"；实际上那只是同一规则在两处触发。
+    const notices = deriveNotices(
+      outcome({
+        grouped: [grouped('wb.model-blocked-everywhere', 2, ['workbuddy-channels'])],
+        analysis: { ...CYCLIC, causalType: 'unidirectional' },
+      }),
+      [],
+    );
+
+    // 单一 code 即使 ×N 也不该产出"结构"结论
+    expect(notices).toHaveLength(0);
+  });
+
+  it('跨轮仍在 ⇒ structure.recurring（回路的唯一正确判据）', () => {
+    const notices = deriveNotices(
+      outcome({
+        grouped: [grouped('wb.model-blocked-everywhere', 2, ['workbuddy-channels'])],
+        analysis: undefined,
+      }),
+      [],
+      ['wb.model-blocked-everywhere'],
+    );
+
+    const recurring = notices.find((item) => item.code === 'structure.recurring');
+    expect(recurring).toBeDefined();
+    expect(recurring?.message).toContain('上一轮已经报过');
+    expect(recurring?.hint).toContain('换一个作用点');
+    expect(recurring?.evidence).toEqual(['跨轮仍在：wb.model-blocked-everywhere']);
+  });
+
+  it('没有跨轮数据时不声称回路', () => {
+    const notices = deriveNotices(
+      outcome({
+        grouped: [grouped('memory.R14', 2), grouped('memory.R3', 2)],
+        analysis: CYCLIC,
+      }),
+      [],
+      [],
+    );
+
+    expect(notices.some((item) => item.code === 'structure.recurring')).toBe(false);
   });
 
   it('原始警告只作为 evidence，不作为独立条目', () => {

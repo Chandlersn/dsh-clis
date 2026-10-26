@@ -50,42 +50,48 @@ describe('真实场景：memory-manager 的 5 个 WARN', () => {
     await ctx.fiber.dispose();
   });
 
-  it('判定为回路（不是"需拆开处理"）', async () => {
+  it('判定为"同源"（弱判断），而非"回路"或"需拆开处理"', async () => {
     const ctx = new Context();
     await ctx.plugin(classifierPlugin);
 
     const outcome = await new HealthSupervisor(ctx, [memoryManagerSource()]).run();
 
-    // 首版因四问不互斥而误判为 nested，此断言钉住修正后的行为
-    expect(outcome.analysis?.causalType).toBe('cyclic');
-    expect(outcome.analysis?.confidence).toBeGreaterThanOrEqual(0.7);
+    // 历史修正：
+    // 首版因四问不互斥 → 误判 nested（"需拆开处理"）；
+    // 二版把"轮内重复(count>1)"当回路 → 误判 cyclic（"存在反馈环"）。
+    // 现在：3 类问题同属一个插件 = **弱证据**，只能判"可能同源"。
+    // 真正的回路判据是跨轮持续，由 deriveNotices 用 history 单独报。
+    expect(outcome.analysis?.causalType).toBe('structural_duality');
+    expect(outcome.analysis?.summary).toContain('同一个产生环节');
+    // 不得声称反馈环 —— 轮内数据支撑不了这个结论
+    expect(outcome.analysis?.summary).not.toContain('反馈环');
 
     await ctx.fiber.dispose();
   });
 
-  it('四问作答互斥：只填 Q2', async () => {
+  it('四问作答互斥：只填 Q1（轮内数据判不出 Q2 回路）', async () => {
     const ctx = new Context();
     await ctx.plugin(classifierPlugin);
 
     const outcome = await new HealthSupervisor(ctx, [memoryManagerSource()]).run();
     const answers = outcome.analysis?.questions;
 
-    expect(answers?.q2_delayed_mutual_influence).toBe('yes');
-    // 同类反复已占用判定，不再同时给"互为定义"（否则触发 R3 冲突）
-    expect(answers?.q1_simultaneous_mutual_definition).toBe('no');
+    expect(answers?.q1_simultaneous_mutual_definition).toBe('yes');
+    // 关键：Q2 一律为 no —— 回路只能由跨轮数据判定（真机 bug 的根因）
+    expect(answers?.q2_delayed_mutual_influence).toBe('no');
     expect(answers?.q3_strict_irreversible_order).toBe('no');
 
     await ctx.fiber.dispose();
   });
 
-  it('给出可操作的方向：找共同产生环节而非逐条修', async () => {
+  it('给出可操作的方向：先查同源性', async () => {
     const ctx = new Context();
     await ctx.plugin(classifierPlugin);
 
     const outcome = await new HealthSupervisor(ctx, [memoryManagerSource()]).run();
 
-    expect(outcome.analysis?.summary).toContain('反馈环');
-    expect(outcome.analysis?.direction).toContain('共同的产生环节');
+    expect(outcome.analysis?.direction).toContain('同一个产生环节');
+    expect(outcome.analysis?.direction).toContain('只改其中一类');
 
     await ctx.fiber.dispose();
   });

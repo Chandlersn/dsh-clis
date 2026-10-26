@@ -137,39 +137,41 @@ export class HealthSupervisor {
         : undefined;
     if (classifier === undefined) return undefined;
 
-    const repeated = grouped.filter((item) => item.count > 1);
     const errorCount = grouped.filter((item) => item.severity === 'error').length;
-    const warnCount = grouped.filter((item) => item.severity === 'warn').length;
 
-    // 从聚合结果推断四问作答 —— 这一步是"自动互查"的核心翻译环节。
+    // 从聚合结果推断四问作答 —— "自动互查"的核心翻译环节。
     //
-    // **必须保证四问互斥**：分类器的 R3 规则把"Q1..Q3 多个 yes"判为结构冲突
-    // → 强行归为 nested。人工作答时不会同时选两个（那是自相矛盾），
-    // 但自动翻译时"同类反复"和"多 code 同源"完全可能同时成立 ——
-    // 直接都填 yes 会被误判成 nested（实测：memory-manager 的 5 个警告
-    // 被误判为"需拆开处理"，而真相是 R14×2 与 R3×2 都属同类反复）。
+    // ## 两条必须遵守的规则
     //
-    // 故按特征强度排优先级，命中高优先级就不再占用低优先级：
-    //   回路（同类反复）> 对偶（多 code 同源）> 嵌套（含探针故障）> 单向（单点）
+    // **规则一：四问必须互斥。** 分类器的 R3 规则把"Q1..Q3 多个 yes"判为
+    // 结构冲突 → 强行归为 nested。人工作答不会同时选两个（那自相矛盾），
+    // 但自动翻译时多个特征可能同时成立。故按优先级取一个。
+    //
+    // **规则二：Q2（回路）不能由"轮内重复"推断 —— 这是真机踩到的 bug。**
+    // workbuddy-channels 的两条车道各报一次同一条规则，`count=2`，
+    // 首版据此填 Q2=yes → 判为"存在反馈环，逐条修补无效"。
+    // 但那只是**同一条规则在两处触发**，与"修了又回来"完全无关。
+    //
+    // 回路的唯一正确判据是**跨轮持续**：上一轮报过、这一轮还在。
+    // 那个信息只有调用方（掌握历史）才知道，故由 `deriveNotices` 用
+    // `persisting` 参数单独判定，这里一律填 'no'。
     const hasProbeFailure = probeErrors.length > 0;
-    const hasRepeated = repeated.length > 0;
     const hasSameOrigin = grouped.length > 1 && sameLocation(grouped);
-    const isSinglePoint =
-      grouped.length === 1 && !hasRepeated && !hasProbeFailure;
+    const isSinglePoint = grouped.length === 1 && !hasProbeFailure;
 
     const questions: FourAnswers = {
-      q1_simultaneous_mutual_definition:
-        !hasRepeated && !hasProbeFailure && hasSameOrigin ? 'yes' : 'no',
-      q2_delayed_mutual_influence: hasRepeated ? 'yes' : 'no',
+      q1_simultaneous_mutual_definition: !hasProbeFailure && hasSameOrigin ? 'yes' : 'no',
+      // 见规则二：回路只能由跨轮数据判定，此处不作断言
+      q2_delayed_mutual_influence: 'no',
       q3_strict_irreversible_order: isSinglePoint ? 'yes' : 'no',
-      // Q4 多结构并存：既有探针故障又有业务问题，或 error 与 warn 混杂且分布散
+      // Q4 多结构并存：既有探针故障又有业务问题
       q4_coexisting_causal_structures:
-        probeErrors.length > 0 && grouped.length > 0 ? 'yes' : errorCount > 0 && warnCount > 0 ? 'no' : 'no',
+        probeErrors.length > 0 && grouped.length > 0 ? 'yes' : 'no',
     };
 
     try {
       const result = await classifier.classify({
-        description: `插件体检发现 ${grouped.length} 类问题（其中 ${repeated.length} 类反复出现，${errorCount} 个 error）`,
+        description: `插件体检发现 ${grouped.length} 类问题（${errorCount} 个 error）`,
         answers: questions,
       });
 
@@ -177,7 +179,7 @@ export class HealthSupervisor {
         causalType: result.causal_type,
         confidence: result.confidence,
         questions,
-        summary: summarise(result.causal_type, grouped, repeated, probeErrors),
+        summary: summarise(result.causal_type, grouped, probeErrors),
         ...(directionFor(result.causal_type) !== undefined
           ? { direction: directionFor(result.causal_type) }
           : {}),
@@ -253,14 +255,15 @@ function overallStatus(
 function summarise(
   causalType: string,
   grouped: readonly GroupedFinding[],
-  repeated: readonly GroupedFinding[],
   probeErrors: readonly { plugin: string; error: string }[],
 ): string {
   switch (causalType) {
+    // 注意：这里不再声称"反复出现" —— 轮内数据判不出回路（见 analyse 的
+    // 规则二）。回路由 deriveNotices 用跨轮数据单独报 `structure.recurring`。
     case 'cyclic':
-      return `这 ${grouped.length} 类问题里有 ${repeated.length} 类是反复出现的，说明存在反馈环：修完又会回来，逐条修补无效`;
+      return `这 ${grouped.length} 类问题可能相互牵动，逐条修未必有效`;
     case 'structural_duality':
-      return `这 ${grouped.length} 类问题互相定义同一处病灶，单边改动会互相抵消，需要同时调整`;
+      return `这 ${grouped.length} 类问题同属一个插件或一处位置，可能是同一个产生环节的不同表现`;
     case 'nested':
       return `存在多种结构并存${probeErrors.length > 0 ? '（含探针自身故障）' : ''}：需拆开分别处理，先修观测能力再看业务问题`;
     case 'unidirectional':
@@ -274,9 +277,13 @@ function summarise(
 function directionFor(causalType: string): string | undefined {
   switch (causalType) {
     case 'cyclic':
-      return '不要逐条修：找这些问题共同的产生环节，在那里加约束，让问题不再产生';
+      // 措辞刻意保守：轮内数据判不出回路，真正的回路判据在
+      // deriveNotices 的跨轮 `structure.recurring`。
+      return '这些问题可能相互牵动，逐条修未必有效；先看它们是否共享同一个产生环节';
     case 'structural_duality':
-      return '两边一起改：只改一侧会被另一侧拉回去';
+      // 多类问题出自同一插件只是**弱证据**：可能是同一个产生环节的不同表现，
+      // 也可能彼此无关。故给的是"先查同源性"，不是"两边一起改"那种断言。
+      return '先确认这几类问题是否出自同一个产生环节：若同源，只改其中一类剩下的仍在';
     case 'nested':
       return '先修探针/观测能力，再处理业务问题：观测坏了会掩盖真实病灶';
     case 'unidirectional':

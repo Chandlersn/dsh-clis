@@ -94,22 +94,23 @@ describe('findings 聚合', () => {
 });
 
 describe('四问自动翻译（互查的核心）', () => {
-  it('同一问题反复出现 ⇒ 判为回路(cyclic)', async () => {
+  it('同一 code 轮内重复 ⇒ 不判回路（真机 bug：曾据此误判反馈环）', async () => {
     const captured: { answers?: Record<string, string> } = {};
-    // 同一 code 出现两次 = 反复
+    // 同一 code 出现两次只是"同一规则在两处触发"，不是"修了又回来"
     const sources = [
       source('p', [{ code: 'R14', severity: 'warn' }, { code: 'R14', severity: 'warn' }]),
     ];
 
     const outcome = await new HealthSupervisor(fakeCtx(captured), sources).run();
 
-    expect(captured.answers?.q2_delayed_mutual_influence).toBe('yes');
-    expect(outcome.analysis?.causalType).toBe('cyclic');
-    expect(outcome.analysis?.summary).toContain('反馈环');
-    expect(outcome.analysis?.direction).toContain('找这些问题共同的产生环节');
+    // 回路只能由跨轮数据判定 —— 轮内数据一律填 no
+    expect(captured.answers?.q2_delayed_mutual_influence).toBe('no');
+    expect(outcome.analysis?.causalType).not.toBe('cyclic');
+    // 也不得声称"反馈环"
+    expect(outcome.analysis?.summary).not.toContain('反馈环');
   });
 
-  it('多个 code 落在同一插件 ⇒ 判为互为定义(duality)', async () => {
+  it('多个 code 落在同一插件 ⇒ 判为同源(duality)，措辞保守', async () => {
     const captured: { answers?: Record<string, string> } = {};
     const sources = [
       source('p', [
@@ -122,7 +123,9 @@ describe('四问自动翻译（互查的核心）', () => {
 
     expect(captured.answers?.q1_simultaneous_mutual_definition).toBe('yes');
     expect(outcome.analysis?.causalType).toBe('structural_duality');
-    expect(outcome.analysis?.direction).toContain('两边一起改');
+    // 多类问题同属一个插件只是**弱证据**：给"先查同源性"，不给"两边一起改"的断言
+    expect(outcome.analysis?.direction).toContain('同一个产生环节');
+    expect(outcome.analysis?.summary).toContain('可能');
   });
 
   it('单一问题且无探针故障 ⇒ 判为单向(unidirectional)', async () => {

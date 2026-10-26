@@ -483,19 +483,25 @@ export function registerTools(
         const supervisor = new HealthSupervisor(ctx, sources);
         const outcome = await supervisor.run();
 
-        // —— 第二步：只提炼结构诊断，不转发对方的逐条 findings ——
+        // —— 第二步：读历史，算出"跨轮仍在"的问题 ——
         //
-        // 这是与早先实现的关键差别（用户 2026-10-26 指出重复问题）：
+        // 这是**回路的唯一正确判据**：上一轮报过、这一轮还在。
+        // 轮内出现多次（同一规则在两处触发）看着像"反复"，实则无关 ——
+        // 真机上就因此把"两条车道各报一次限流"误判成了"反馈环"。
+        const previous = await readSeenState();
+        const presentCodes = new Set(outcome.grouped.map((item) => item.code));
+        const persisting = Object.values(previous.findings)
+          .filter((item) => presentCodes.has(item.code))
+          .map((item) => item.code);
+
+        // —— 第三步：只提炼结构诊断，不转发对方的逐条 findings ——
+        //
         // memory-manager 的 R14/R3 在它自己面板里已有，转发回它自己的
         // 收件箱只是重复。CLIS 的增量是"这些警告是什么结构"。
-        //
-        // 注意第二参数传空数组：v2 不再把"没探针的插件"报成缺口
-        // （那是能力地图，走 supervision.pending_integration）。
-        const notices = deriveNotices(outcome, []);
+        const notices = deriveNotices(outcome, [], persisting);
 
-        // —— 第三步：去重 + 判"对方修了没" ——
-        // 判据仍是"下一轮该 code 是否还在"，不依赖对方回报。
-        const previous = await readSeenState();
+        // —— 第四步：去重 + 判"对方修了没" ——
+        // 判据同样是"下一轮该 code 是否还在"，不依赖对方回报。
         const escalateAfter = 2;
         const dispositionInput = notices.map((notice) => ({
           code: notice.code,
