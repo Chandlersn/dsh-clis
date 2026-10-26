@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 
 import { ClisHealthProbe } from './health-probe';
+import { ProbeRegistry, scanKnownProbes } from './probe-registry';
 import type { ProbeSource } from './health-supervisor';
 import { registerPromptSection } from './prompt';
 import { registerTools } from './tools';
@@ -64,12 +65,31 @@ export function apply(ctx: Context): void {
   // CLIS 自己的健康探针：让它能被 clis_probe 自己检查，也示范了
   // HealthProbe 的实现方式 —— 其他插件照这个形状实现即可被纳入互查。
   const probe = new ClisHealthProbe(ctx, PLUGIN_VERSION);
-  const sources = (): ProbeSource[] => [
-    { plugin: 'dsh-clis', probe: () => probe.probe() },
-  ];
+
+  // 探针注册表：同时支持「广播收集」与「惰性扫描」两种发现方式。
+  // 只用自己那份 sources 是错的 —— 那样 clis_probe 永远只查得到自己。
+  const registry = new ProbeRegistry();
+  registry.add('dsh-clis', () => probe.probe());
+  const disposeListen = registry.listen(ctx);
+
+  // 注册表 → 每次调用时重新收集（其他插件可能后装载）。
+  const sources = (): ProbeSource[] => {
+    const collected = registry.sources();
+    const known = collected.map((item) => item.plugin);
+    return [...collected, ...scanKnownProbes(ctx, known)];
+  };
 
   registerTools(ctx, sources);
   registerPromptSection(ctx);
+
+  // 装载末尾的统一清理：随插件卸载取消订阅。
+  // 用 ctx.effect 而非自己跟踪 disposer —— Cordis 保证 fiber 销毁时回调。
+  const host = ctx as unknown as {
+    effect?: (fn: () => (() => void) | void) => void;
+  };
+  if (typeof host.effect === 'function') {
+    host.effect(() => disposeListen);
+  }
 }
 
 export { classifyProblem } from '@clis/clis-classifier';
