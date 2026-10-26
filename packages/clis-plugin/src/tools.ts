@@ -255,9 +255,13 @@ export function registerTools(ctx: Context): void {
           await history.read(key),
           (result.classification?.causal_type ?? 'unknown') as string,
         );
-        const priorRollbacksAfter = (await history.read(key))?.entries.filter(
-          (entry) => entry.signal_type === 'type_misjudged',
-        ).length ?? 0;
+        const afterRecord = await history.read(key);
+        const priorRollbacksAfter = ClisHistoryStore.rollbacksFor(
+          afterRecord,
+          (result.classification?.causal_type ?? 'unknown') as string,
+        );
+        /** 真实动手后的失败累计次数（不含基线）。 */
+        const priorFailuresAfter = ClisHistoryStore.failures(afterRecord);
 
         return toToolJson({
           problem_key: key,
@@ -275,10 +279,22 @@ export function registerTools(ctx: Context): void {
           decision: result.decision,
           traces: result.state.traces,
           summary: result.reason,
+          // 关键区分：`signal_type` 判的是**本轮规划**（桩执行器恒 ok ⇒ 恒 effective），
+          // 而 `last_outcome` 是**你实际动手**的结果。历史里累计多次失败时，
+          // 单看 effective 会误以为问题解决了 —— 这里显式点明，并给出该做什么。
+          guidance:
+            priorFailuresAfter === 0
+              ? '本轮仅给出规划；动手后请回填 last_outcome，系统才能判断这次假设是否成立'
+              : priorFailuresAfter >= 2
+                ? `同一假设已累计 ${priorFailuresAfter} 次失败：不要再沿这条假设加码，换一种因果类型重新提问（例如 q2 若其实是 yes，那就是回路而非单向）`
+                : '上一次失败了：这次动手后务必回填 last_outcome，第二次失败就足以判定类型假设有误',
           history: {
             times_seen: (await history.read(key))?.entries.length ?? 0,
             prior_signals: priorSignalsAfter,
             prior_rollbacks: priorRollbacksAfter,
+            prior_failures: priorFailuresAfter,
+            plan_outcome_note:
+              '注意 outcome/signal_type 反映的是「本轮规划是否顺利执行」，不代表现实问题已解决；现实结果取决于你回填的 last_outcome',
             hint:
               priorRollbacksAfter > 0
                 ? '此前该类型假设已判过误判，考虑换一种因果假设重新提问'
