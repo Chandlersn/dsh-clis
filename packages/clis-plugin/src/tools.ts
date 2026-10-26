@@ -130,12 +130,12 @@ export function registerTools(ctx: Context): void {
     defineTool({
       name: 'clis_run',
       description:
-        '按因果类型处理一个问题：先判断因果类型（结构对偶/循环/单向/嵌套/未知），再匹配策略、生成候选路径，执行后依据反馈信号决定继续、换路径或回退。适合需要先辨明因果结构再动手的问题，例如反馈回路该怎么干预、单向依赖能否逆转、两个概念是否互为定义。把上一次的真实结果通过 last_outcome 回填，它就能判断"上次那个假设是不是错了"——反复无效时会给出 type_misjudged 并建议换一种因果假设。',
+        '当改动反复无效、越调越糟、指标来回震荡，或两个因素分不清谁因谁果时，先判断因果结构再动手。因为"单向因果"和"反馈回路"需要完全相反的处理：前者该溯源到最早可干预的因，后者在环上硬推会加剧震荡。返回因果类型、判断依据，以及按该类型排序的策略路径。把上次动手的真实结果回填到 last_outcome，反复无效时它会判定类型假设有误并建议换一种因果解释。',
       parameters: {
         description: {
           type: 'string',
           required: true,
-          description: '问题描述，一句话说清 A 与 B 的关系。',
+          description: '一句话说清 A 与 B 的关系，以及你观察到的现象（如"调高价格想抑制需求，需求短暂下降后又反弹"）。',
         },
         ...questionParams(),
         forbidden_actions: {
@@ -329,9 +329,9 @@ export function registerTools(ctx: Context): void {
     defineTool({
       name: 'clis_classify',
       description:
-        '只判断因果类型，不生成策略也不执行。四类确定类型：structural_duality（同时成立、彼此定义、无先后）、cyclic（A→B→A 有时间延迟）、unidirectional（严格先后且不可逆）、nested（多种结构并存需拆子模块）；无法判断时返回 unknown 并给候选假设，不强行归类。置信度上限 0.9，低于 0.7 标记需探索。',
+        '只回答"这是什么因果结构"，不给建议也不动手。用于你想先确认结构再决定怎么处理、或需要向用户解释"为什么这里不能用常规办法"。四种结果：structural_duality（两者同时成立、彼此定义）、cyclic（有延迟的相互影响，会震荡）、unidirectional（严格先后且不可逆）、nested（多种结构并存）；信息不足时返回 unknown 并列出候选假设，不硬猜。',
       parameters: {
-        description: { type: 'string', required: true, description: '问题描述。' },
+        description: { type: 'string', required: true, description: '一句话说清 A 与 B 的关系。' },
         ...questionParams(),
       },
       output: {
@@ -369,9 +369,9 @@ export function registerTools(ctx: Context): void {
     defineTool({
       name: 'clis_plan',
       description:
-        '只生成候选策略路径并排序，不执行。按「类型匹配度 0.4 + 预期效果 0.3 + 副作用风险 0.2 + 执行成本 0.1」排序，风险与成本以 (1-值) 进入故越低越优。返回每条路径的动作步骤、分数与名次，以及因边界被剔除的动作。',
+        '只列"这种事有哪几种做法、各自代价如何"，不执行也不推荐唯一答案。用于你想给用户几个有依据的选项、或想先看清代价再决定。按类型匹配度、预期效果、副作用风险、执行成本四项加权排序；可指定禁止使用的动作，它们不会出现在任何路径里。',
       parameters: {
-        description: { type: 'string', required: true, description: '问题描述。' },
+        description: { type: 'string', required: true, description: '一句话说清 A 与 B 的关系。' },
         ...questionParams(),
         forbidden_actions: {
           type: 'array',
