@@ -10,7 +10,7 @@ import { getDefineTool } from './cordis-shim';
 import { SemiAutoExecutor } from './executor';
 import { deriveNotices, HealthNotifier, shapeForAgent } from './health-notifier';
 import { readSeenState, reconcileFindings, writeSeenState } from './health-seen';
-import { buildScope, listPlugins } from './plugin-scope';
+import { autoSources, buildScope, listPlugins } from './plugin-scope';
 import { HealthSupervisor } from './health-supervisor';
 import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
@@ -445,30 +445,37 @@ export function registerTools(
       async execute(rawArgs: Record<string, unknown>) {
         // —— 第一步：枚举整个系统的插件列表（不依赖任何写死的名单）——
         const plugins = listPlugins(ctx);
-        const rawSources = healthSources();
-        const { scope, activeTotal, externalTotal, uncovered } = buildScope(plugins, rawSources);
+        const explicit = healthSources();
+
+        // —— 第二步：自动生成监督来源 ——
+        //
+        // 这是本机制可扩展的关键（用户 2026-10-26 指出）：
+        // 若只能等插件自己上报，新装的插件永远不会被知道。
+        // 现在分两层：
+        // - 自动层：从 loader 元数据推导（装载状态/依赖满足），插件无需配合；
+        // - 协作层：插件导出 healthProbe 或显式注册 → 更丰富的领域信号。
+        const auto = autoSources(ctx, plugins, explicit);
+        const { activeTotal } = buildScope(plugins, explicit);
 
         const only = rawArgs.only as readonly string[] | undefined;
         const sources =
           only === undefined
-            ? scope.sources
-            : scope.sources.filter((item) => only.some((id) => id === item.plugin));
+            ? auto.sources
+            : auto.sources.filter((item) => only.some((id) => id === item.plugin));
 
         const supervision = {
           active_plugins: activeTotal,
-          user_plugins: externalTotal,
-          covered: sources.length,
-          uncovered_in_supervision: uncovered,
+          user_plugins: auto.total,
+          supervised: sources.length,
+          domain_probes: auto.domainCovered,
+          structural_only: auto.structuralOnly,
         };
 
         if (sources.length === 0) {
           return toToolJson({
             status: 'ok',
             supervision,
-            message: '当前没有任何插件提供健康探针：系统处于全盲状态',
-            hint:
-              '各插件需实现 probe() 并 emit clis/register-probe 才会被纳入监督；' +
-              'CLIS 自身已实现，可作为实现范例',
+            message: '没有可监督的非内建插件',
             notices: [],
           });
         }
