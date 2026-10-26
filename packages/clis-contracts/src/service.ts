@@ -146,6 +146,14 @@ export interface OrchestratorRunOptions extends OrchestratorOptions {
   readonly state?: OrchestratorState;
   /** 已选定的路径；缺省由 strategy 生成后取第一条可执行路径。 */
   readonly path?: CandidatePath;
+  /**
+   * 跨轮历史信号 —— 传给反馈服务判定「反复偏离」。
+   *
+   * 反馈服务无状态，只看得到本轮；不传历史时 `type_misjudged`
+   * （契约要求「反复」偏离）永远不可能触发。调用方应只传
+   * **同一因果类型假设下**的历史信号。
+   */
+  readonly history?: import('./feedback').FeedbackHistory;
 }
 
 declare module '@deepseek-ai/cordis' {

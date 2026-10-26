@@ -200,6 +200,23 @@ export function registerTools(ctx: Context): void {
           });
         }
 
+        // 把已归档的真实历史喂给编排器 → 它转交反馈服务。
+        //
+        // 这一步是闭环能否"自我纠错"的关键：反馈服务无状态，只看得到本轮；
+        // 不传历史时 `type_misjudged`（要求**反复**偏离）永远不可能触发。
+        //
+        // 只传**同一类型假设下**的信号：换了假设，旧信号不再构成对当前假设的反证。
+        // 类型假设要等分类才知道，故先分类一次（纯函数，无副作用、很便宜）。
+        const preClassified = await ctx[SERVICE_CLASSIFIER]?.classify(problem);
+        const priorSignals = ClisHistoryStore.signalsFor(
+          prior,
+          (preClassified?.causal_type ?? 'unknown') as string,
+        );
+        const priorRollbacks = ClisHistoryStore.rollbacksFor(
+          prior,
+          (preClassified?.causal_type ?? 'unknown') as string,
+        );
+
         const result = await orchestrator.run(problem, {
           boundary: toBoundary(rawArgs),
           executor: {
@@ -210,6 +227,14 @@ export function registerTools(ctx: Context): void {
               detail: `已规划动作 ${invocation.action}（CLIS 只做推理与规划，不产生真实副作用）`,
             }),
           },
+          ...(priorSignals.length > 0 || priorRollbacks > 0
+            ? {
+                history: {
+                  previous_signals: priorSignals,
+                  ...(priorRollbacks > 0 ? { rollback_count: priorRollbacks } : {}),
+                },
+              }
+            : {}),
         });
 
         // 首次见到这个问题时，记一条"尚未动手"的基线，

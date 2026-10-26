@@ -134,4 +134,16 @@ export interface RunOptions extends OrchestratorOptions {
   readonly state?: OrchestratorState;
   /** 最大轮数保护（防止无限循环）；缺省 32。 */
   readonly max_rounds?: number;
+  /**
+   * 跨轮历史信号 —— 传给反馈服务判定「反复偏离」。
+   *
+   * 为什么必须由调用方注入：反馈服务**无状态**（不修改系统状态），
+   * 它靠 `FeedbackHistory.previous_signals` 判断当前偏离是否属于「反复」。
+   * 不传时反馈只能看到本轮，`type_misjudged`（契约要求「反复」偏离）
+   * 永远不可能触发 —— 闭环会退化成一味地判 effective。
+   *
+   * 调用方应只传**同一因果类型假设下**的历史信号：换了假设，
+   * 旧信号不再构成对当前假设的反证。
+   */
+  readonly history?: import('./feedback').FeedbackHistory;
 }

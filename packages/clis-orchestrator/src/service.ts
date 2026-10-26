@@ -119,14 +119,17 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
       }
 
       execution = await strategy.execute(candidate, { boundary, executor });
-      signal = await feedback.detect({
-        result: execution,
-        classification: {
-          causal_type: classification.causal_type,
-          confidence: classification.confidence,
+      signal = await feedback.detect(
+        {
+          result: execution,
+          classification: {
+            causal_type: classification.causal_type,
+            confidence: classification.confidence,
+          },
+          boundary: { forbidden_actions: boundary.forbidden_actions },
         },
-        boundary: { forbidden_actions: boundary.forbidden_actions },
-      });
+        options.history !== undefined ? { history: options.history } : undefined,
+      );
 
       const outcome = decide(
         {
@@ -259,14 +262,17 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
       executor: options.executor,
     });
 
-    const signal = await feedback.detect({
-      result: execution,
-      classification: {
-        causal_type: classification.causal_type,
-        confidence: classification.confidence,
+    const signal = await feedback.detect(
+      {
+        result: execution,
+        classification: {
+          causal_type: classification.causal_type,
+          confidence: classification.confidence,
+        },
+        boundary: { forbidden_actions: boundary.forbidden_actions },
       },
-      boundary: { forbidden_actions: boundary.forbidden_actions },
-    });
+      options.history !== undefined ? { history: options.history } : undefined,
+    );
 
     const state = options.state ?? initialState();
     const { decision, nextState } = decide(
