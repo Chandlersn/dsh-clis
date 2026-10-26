@@ -1,4 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
+import { join } from 'node:path';
+
+import { recordMetric } from './intervene-metrics';
 
 /**
  * 反馈介入 —— 在 agent **碰到失败反馈的那一刻**递上一把尺子。
@@ -199,11 +202,13 @@ export function failureMessageOf(result: unknown): string {
  *
  * @param ctx 插件上下文（需具备 tools 服务）。
  * @param state 可注入状态；缺省自建。
+ * @param dshHome 指标落盘目录；缺省按环境推导（测试注入用）。
  * @returns 注销函数；未注册时 undefined。
  */
 export function registerIntervener(
   ctx: Context,
   state: InterveneState = createInterveneState(),
+  dshHome: string = process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '', '.dsh'),
 ): (() => void) | undefined {
   const host = ctx as unknown as {
     tools?: {
@@ -232,6 +237,20 @@ export function registerIntervener(
       [key: string]: unknown;
     };
 
+    // —— agent 调用 CLIS 工具：先于成功跳过处理 ——
+    // 为什么必须在这里：clis_run/classify 绝大多数调用是**成功**的，若把
+    // 这段放在 isError 判断之后，成功路径会提前 return，adopted 永远记不上
+    // （真机诊断发现：decision 直接是 {kind:'accept'}，账没落）。
+    const e0 = exec as { name?: unknown; agent?: { id?: unknown } } | null;
+    const tool0 = typeof e0?.name === 'string' ? e0.name : '';
+    if (tool0 === 'clis_run' || tool0 === 'clis_classify') {
+      const agentId0 = typeof e0?.agent?.id === 'string' ? e0.agent.id : 'default';
+      // agent 自己用了 CLIS：提示已被采纳，清抑制状态；记 adopted —— 采用率的分子。
+      markToolUsed(state, agentId0);
+      void recordMetric(dshHome, { kind: 'adopted', agent: agentId0, via: tool0 });
+      return decision;
+    }
+
     // 成功结果零成本跳过（闸门 1）。不读字段、不算签名。
     const r = result as { isError?: unknown } | null | undefined;
     if (r?.isError !== true) return decision;
@@ -241,14 +260,14 @@ export function registerIntervener(
       const tool = typeof e?.name === 'string' ? e.name : 'unknown';
       const agentId = typeof e?.agent?.id === 'string' ? e.agent.id : 'default';
 
-      // agent 自己用了 clis_run：提示已被采纳，清抑制状态。
-      if (tool === 'clis_run' || tool === 'clis_classify') {
-        markToolUsed(state, agentId);
-        return decision;
-      }
-
-      const hint = shouldIntervene(state, agentId, tool, failureMessageOf(result), Date.now());
+      const message = failureMessageOf(result);
+      const hint = shouldIntervene(state, agentId, tool, message, Date.now());
       if (hint === undefined) return decision;
+
+      // 注入了提示：记 hinted —— 采用率的分母。签名一并记下，
+      // 便于把"哪类失败最常触发介入"与"哪类被采纳"关联起来。
+      const signature = failureSignature(tool, message);
+      void recordMetric(dshHome, { kind: 'hinted', agent: agentId, tool, signature });
 
       // createUserMessage 的形状照 memory-manager 的注入先例：
       // { role:'user', source:{kind}, content:[{type:'text',text}] }。

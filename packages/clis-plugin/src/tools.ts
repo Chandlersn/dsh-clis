@@ -6,12 +6,16 @@ import type {
   StrategyBoundary,
 } from '@clis/clis-contracts';
 
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { getDefineTool } from './cordis-shim';
 import { SemiAutoExecutor } from './executor';
 import { deriveNotices, HealthNotifier, shapeForAgent } from './health-notifier';
 import { readSeenState, reconcileFindings, writeSeenState } from './health-seen';
 import { autoSources, buildScope, listPlugins } from './plugin-scope';
 import { HealthSupervisor } from './health-supervisor';
+import { summarizeMetrics } from './intervene-metrics';
 import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
 import { ClisHistoryStore, fingerprint } from './history';
@@ -545,6 +549,49 @@ export function registerTools(
       },
     }),
   );
+
+  // —— clis_metrics：介入有效性的可测指标 ——
+  // 采纳率（adopted/hinted）是唯一不需要对照实验就能收集的证据：
+  // 它证明链路是活的（提示被看见、被采纳）。为 0 则机制该改，不是继续加功能。
+  toolRuntime(ctx).register(
+    defineTool({
+      name: 'clis_metrics',
+      description:
+        'Read intervention-effectiveness metrics for CLIS. hinted = failure-feedback hints actually injected into the agent loop; adopted = the agent then called clis_run/clis_classify; adoptionRate = adopted/hinted over the window. Zero hints means the gate never fired; a near-zero rate means the hint is seen but not trusted — both are actionable. Read-only; no experiment required to collect.',
+      parameters: {
+        window_days: {
+          type: 'number',
+          description: '汇总窗口（天）；缺省 30。',
+        },
+      },
+      output: {
+        schema: { type: 'json' },
+        render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      },
+      async execute(rawArgs: Record<string, unknown>) {
+        const days = Math.min(Math.max(1, Number(rawArgs.window_days) || 30), 365);
+        const summary = await summarizeMetrics(dshHomeOf(), days);
+        return toToolJson({
+          window_days: days,
+          hinted: summary.hinted,
+          adopted: summary.adopted,
+          adoption_rate: summary.adoptionRate,
+          // 判读指引：数字本身不说明好坏，解释框架要给足。
+          reading:
+            summary.hinted === 0
+              ? '窗口内没有任何介入发生：要么没有失败反馈，要么全部被闸门拦下（正常与否看使用强度）。'
+              : summary.adoptionRate !== null && summary.adoptionRate >= 0.3
+                ? '采用率健康：提示被看见且多数被采纳。'
+                : '采用率偏低：提示被看见但没被信任。优先检查提示措辞是否太像命令、触发时机是否太频繁。',
+        });
+      },
+    }),
+  );
+}
+
+/** 与 history.ts / intervene-metrics.ts 同一推导：DSH_HOME → ~/.dsh。 */
+function dshHomeOf(): string {
+  return process.env.DSH_HOME ?? join(homedir(), '.dsh');
 }
 
 export type { QuestionKey };
