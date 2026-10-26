@@ -159,6 +159,18 @@ export type ActionResultStatus = (typeof ACTION_RESULT_STATUSES)[number];
 export interface ActionResult {
   readonly status: ActionResultStatus;
   readonly detail: string;
+  /**
+   * true 表示这次调用**只完成了观测/读取，没有改动任何东西**。
+   *
+   * 语义区分（很重要）：
+   * - `status: 'ok'` 且 `observationOnly` 未设 → 真的做成了一件事；
+   * - `status: 'ok'` 且 `observationOnly: true` → 看清了，但系统未变。
+   *
+   * 半自动执行器把只读动作（measure/trace/enumerate…）标为后者，
+   * 让 strategy 产出 `observed_only` 信号、反馈判 `ineffective` 而非
+   * `effective` —— 否则闭环会误以为问题有进展而空转。
+   */
+  readonly observationOnly?: boolean;
 }
 
 /**
@@ -173,6 +185,19 @@ export interface ActionExecutor {
 export const EXECUTION_SIGNAL_KINDS = [
   'observed',
   'failed',
+  /**
+   * 只读观测完成，但**没有产生任何实际改动**。
+   *
+   * 为什么需要它（2026-10-26 真实使用发现）：
+   * 半自动执行器下，只读动作（测量/追溯/枚举/定位）返回 ok，写动作被拦下。
+   * 若把只读动作记成 `observed`，整条路径因「全部 observed」被判 `succeeded`
+   * → 反馈判 `effective` → 编排器认为有进展、不换路径 ——
+   * 实际上系统里什么也没变，闭环会空转到回退上限（实测空转 13 轮）。
+   *
+   * 这个信号明确表达「看清了，但还没动手」，让反馈能区分
+   * "路径执行完了"与"问题有进展了"。
+   */
+  'observed_only',
   'skipped_forbidden',
   'not_attempted',
   'summary',

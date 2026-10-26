@@ -101,6 +101,8 @@ export async function executePath(
   // —— 依序执行自身步骤 ——
   const signals: ExecutionSignal[] = [];
   let selfFailed = false;
+  let producedChange = false;
+  let observedOnlyCount = 0;
 
   for (const step of path.steps) {
     if (selfFailed) {
@@ -115,11 +117,21 @@ export async function executePath(
       params: step.params,
     });
 
-    if (result.status === 'ok') {
-      signals.push(signal(pathId, step.index, step.action, 'observed', result.detail));
-    } else {
+    if (result.status !== 'ok') {
       signals.push(signal(pathId, step.index, step.action, 'failed', result.detail));
       selfFailed = true;
+      continue;
+    }
+
+    // ok 分两种：真的改了东西，还是只观测了。
+    // 只观测不能算"做出进展"——否则整条路径因"全部 observed"被判 succeeded，
+    // 反馈判 effective，编排器据此不换路径，闭环空转到回退上限（实测 13 轮）。
+    if (result.observationOnly === true) {
+      observedOnlyCount += 1;
+      signals.push(signal(pathId, step.index, step.action, 'observed_only', result.detail));
+    } else {
+      producedChange = true;
+      signals.push(signal(pathId, step.index, step.action, 'observed', result.detail));
     }
   }
 
@@ -136,6 +148,14 @@ export async function executePath(
     if (subResults.some((item) => item.status === 'failed')) status = 'failed';
     else if (subResults.some((item) => item.status === 'blocked')) status = 'blocked';
     else status = 'succeeded';
+  } else if (observedOnlyCount > 0 && !producedChange) {
+    // 整条路径只做了观测、没有任何一步产生改动 —— 不算 succeeded。
+    //
+    // 这不是失败：步骤都成功了，只是"没动手"。但若判 succeeded，
+    // 反馈会据"全部 observed"判 effective，编排器便误以为有进展。
+    // 契约里 succeeded 的语义是"路径跑完了且做成了事"，故此处记 failed：
+    // 让反馈看到本轮无实质推进，从而按 ineffective 处理并允许换路径。
+    status = 'failed';
   } else {
     status = 'succeeded';
   }
@@ -144,7 +164,16 @@ export async function executePath(
     subResults.length === 0
       ? ''
       : `；子路径 ${subResults.length} 条（${subResults.map((item) => item.status).join('/')}）`;
-  signals.push(summarySignal(pathId, `${path.steps.length} 步，状态 ${status}${subSummary}`));
+  const observeNote =
+    observedOnlyCount > 0 && !selfFailed
+      ? `，其中 ${observedOnlyCount} 步仅观测未改动`
+      : '';
+  signals.push(
+    summarySignal(
+      pathId,
+      `${path.steps.length} 步，状态 ${status}${observeNote}${subSummary}`,
+    ),
+  );
 
   const draft: {
     path_id: string;

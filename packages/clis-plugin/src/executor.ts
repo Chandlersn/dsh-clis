@@ -80,12 +80,18 @@ export const PENDING_APPROVAL = 'pending_approval';
  * 业务指标），插件没有也不该有那些访问权。半自动的正确边界是：
  * CLIS 说"这一步该观测 X"，agent 去观测，把结果回填。
  *
+ * **`observationOnly: true` 是必须的**：只读动作没有改动任何东西。
+ * 若不标这个字段，strategy 会把它记成 `observed`，整条路径因
+ * "全部 observed" 被判 succeeded → 反馈判 effective → 编排器以为
+ * 有进展而不换路径，闭环空转到回退上限（实测空转 13 轮）。
+ *
  * @param invocation 动作调用。
  * @returns 观测请求说明。
  */
 function observeInstruction(invocation: ActionInvocation): ActionResult {
   return {
     status: 'ok',
+    observationOnly: true,
     detail: `只读观测：${invocation.action}（参数 ${JSON.stringify(invocation.params)}）—— 需采集实际数据后回填`,
   };
 }

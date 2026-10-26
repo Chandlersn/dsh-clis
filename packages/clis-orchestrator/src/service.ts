@@ -131,6 +131,60 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
         options.history !== undefined ? { history: options.history } : undefined,
       );
 
+      // —— 只读模式下没有产生任何改动：换路径不会有不同结果 ——
+      //
+      // 判据是"有没有任何一步真的改动了东西"，而不是"全部都是 observed_only"：
+      // 半自动执行器下，只读步骤记 observed_only、写动作被拦记 failed。
+      // 于是整条路径既非全 observed_only 也非全 failed —— 但它确实什么都没改。
+      //
+      // 为什么必须早退：所有候选路径在本执行器下都是同样结局，换一条还是
+      // 只观测+被拦。实测会绕 13 轮（4 路径 × 3 轮回退）才 manual_intervention，
+      // 期间对系统零改动。真正需要的信息"写动作没被放行"在第一次就已知。
+      const stepSignals = execution.signals.filter((item) => item.step_index >= 0);
+      const producedChange = stepSignals.some((item) => item.kind === 'observed');
+      const observedOnly = stepSignals.filter((item) => item.kind === 'observed_only').length;
+      const blockedSteps = stepSignals.filter((item) => item.kind === 'failed').length;
+      const noChangeAtAll = !producedChange && observedOnly > 0 && blockedSteps > 0;
+
+      if (noChangeAtAll) {
+        const blocked = execution.blocked_actions.map((item) => item.action);
+        const blockedHint =
+          blocked.length > 0 ? `（${[...new Set(blocked)].join(', ')}）` : '';
+
+        return {
+          outcome: 'manual_intervention',
+          state: {
+            ...state,
+            round: state.round + 1,
+            traces: [
+              ...state.traces,
+              {
+                round: state.round + 1,
+                causal_type: classification.causal_type,
+                path_id: candidate.path_id,
+                execution_status: execution.status,
+                signal_type: signal.signal_type,
+                action: 'manual_intervention',
+                rollback_count: state.rollback_count,
+                note: `路径 ${candidate.path_id} 全部步骤仅为只读观测，未产生任何改动：需授权写动作`,
+              },
+            ],
+          },
+          classification,
+          execution,
+          signal,
+          decision: {
+            action: 'manual_intervention',
+            reason:
+              '本路径在只读模式下无实质改动：要继续必须显式授权写动作（allow_writes），换路径不会有不同结果',
+            rollback_count: state.rollback_count,
+          },
+          reason:
+            `需要授权才能推进：${observedOnly} 步只读完、${blockedSteps} 步写动作被拦下` +
+            `${blockedHint}，继续换路径不会有不同结果`,
+        };
+      }
+
       const outcome = decide(
         {
           problem,
