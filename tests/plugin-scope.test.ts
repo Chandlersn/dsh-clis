@@ -34,6 +34,32 @@ function probe(plugin: string) {
   };
 }
 
+/**
+ * 造一个插件条目，补齐自动监督所需的全部字段。
+ *
+ * 默认值刻意取"一切正常"（模块已导入、导出形态为 apply、非分组、不在导入中），
+ * 这样单个用例只覆盖它关心的那几项。
+ */
+function dp(
+  id: string,
+  over: Partial<DiscoveredPlugin> = {},
+): DiscoveredPlugin {
+  return {
+    id,
+    state: 2,
+    external: true,
+    disabled: false,
+    declaredInject: [],
+    probeExport: undefined,
+    moduleLoaded: true,
+    exportForm: 'apply',
+    isGroup: false,
+    importing: false,
+    live: undefined,
+    ...over,
+  };
+}
+
 /** 造 loader 上下文。 */
 function loaderCtx(entries: Array<{ id: string; state: number }>) {
   const list = entries.map((item) => ({
@@ -155,29 +181,16 @@ describe('listPlugins 标注 external', () => {
 });
 
 describe('buildScope 只统计非内建插件', () => {
-  /** 造一个插件条目（补齐自动监督所需的字段）。 */
-  function dp(id: string, external: boolean, state = 2): DiscoveredPlugin {
-    return {
-      id,
-      state,
-      external,
-      disabled: false,
-      declaredInject: [],
-      probeExport: undefined,
-      live: undefined,
-    };
-  }
-
   /** 一批混合插件。 */
   const mixed: DiscoveredPlugin[] = [
-    dp('llm', false),
-    dp('session', false),
-    dp('ui-chat', false),
-    dp('storage', false),
-    dp('dsh-clis', true),
-    dp('dsh-memory-manager', true),
-    dp('dsh-session-tools', true),
-    dp('dsh-learning-mode', true),
+    dp('llm', { external: false }),
+    dp('session', { external: false }),
+    dp('ui-chat', { external: false }),
+    dp('storage', { external: false }),
+    dp('dsh-clis'),
+    dp('dsh-memory-manager'),
+    dp('dsh-session-tools'),
+    dp('dsh-learning-mode'),
   ];
 
   it('externalTotal 只数用户插件', () => {
@@ -211,7 +224,7 @@ describe('buildScope 只统计非内建插件', () => {
   });
 
   it('未激活的用户插件不算监督对象', () => {
-    const plugins: DiscoveredPlugin[] = [dp('dsh-active', true), dp('dsh-inactive', true, 0)];
+    const plugins: DiscoveredPlugin[] = [dp('dsh-active'), dp('dsh-inactive', { state: 0 })];
 
     const { externalTotal, uncovered } = buildScope(plugins, []);
     expect(externalTotal).toBe(1);
@@ -221,28 +234,17 @@ describe('buildScope 只统计非内建插件', () => {
 
 describe('真机场景复现：183 条降到个位数', () => {
   it('典型 profile（内建占绝大多数）只报用户插件缺口', () => {
-    /** 造条目。 */
-    const mk = (id: string, external: boolean): DiscoveredPlugin => ({
-      id,
-      state: 2,
-      external,
-      disabled: false,
-      declaredInject: [],
-      probeExport: undefined,
-      live: undefined,
-    });
-
     // 模拟真机：170 个内建 + 6 个用户插件
     const builtins: DiscoveredPlugin[] = Array.from({ length: 170 }, (_, i) =>
-      mk(`builtin-service-${i}`, false),
+      dp(`builtin-service-${i}`, { external: false }),
     );
     const users: DiscoveredPlugin[] = [
-      mk('dsh-clis', true),
-      mk('dsh-memory-manager', true),
-      mk('dsh-session-tools', true),
-      mk('dsh-learning-mode', true),
-      mk('dsh-workbuddy-channels', true),
-      mk('dshmarket', true),
+      dp('dsh-clis'),
+      dp('dsh-memory-manager'),
+      dp('dsh-session-tools'),
+      dp('dsh-learning-mode'),
+      dp('dsh-workbuddy-channels'),
+      dp('dshmarket'),
     ];
 
     const { activeTotal, externalTotal, uncovered } = buildScope(
@@ -265,26 +267,13 @@ describe('真机场景复现：183 条降到个位数', () => {
 
 describe('自动探针层：插件不配合也要被覆盖', () => {
   /** 造条目（含自动监督所需字段）。 */
-  function mk(
-    id: string,
-    extra: Partial<Pick<DiscoveredPlugin, 'state' | 'external' | 'disabled' | 'declaredInject' | 'probeExport' | 'live'>> = {},
-  ): DiscoveredPlugin {
-    return {
-      id,
-      state: 2,
-      external: true,
-      disabled: false,
-      declaredInject: [],
-      probeExport: undefined,
-      live: undefined,
-      ...extra,
-    };
-  }
-
   /** 只提供 ctx.get 的最小上下文。 */
   const ctx = {
     get: (name: string) => (name === 'tools' ? {} : undefined),
   } as never;
+
+  /** 本组内沿用全局 dp。 */
+  const mk = dp;
 
   it('未导出探针的插件也拿到结构探针（覆盖 100%）', () => {
     const { sources, total, structuralOnly } = autoSources(
@@ -362,15 +351,7 @@ describe('自动结构探针的检查项', () => {
 
   /** 造条目。 */
   function mk(id: string, state: number, declaredInject: string[] = []): DiscoveredPlugin {
-    return {
-      id,
-      state,
-      external: true,
-      disabled: false,
-      declaredInject,
-      probeExport: undefined,
-      live: undefined,
-    };
+    return dp(id, { state, declaredInject });
   }
 
   it('卡在装载 → auto.fiber-loading（warn）', async () => {
@@ -379,6 +360,66 @@ describe('自动结构探针的检查项', () => {
 
     expect(report.status).toBe('degraded');
     expect(report.findings[0]?.code).toBe('auto.fiber-loading');
+  });
+
+  it('模块没导入成功 → auto.import-failed（含 exports["."] 提示）', async () => {
+    // 复刻 CLIS 自己踩过的坑：package.json 缺 exports["."] 时
+    // Loader 静默跳过整个包，patch 行全 absent，没有任何报错。
+    const { sources } = autoSources(
+      ctxWith([]),
+      [dp('dsh-silent', { moduleLoaded: false, exportForm: 'unknown' })],
+      [],
+    );
+    const report = await sources[0]!.probe();
+
+    expect(report.findings[0]?.code).toBe('auto.import-failed');
+    expect(report.findings[0]?.hint).toContain('exports["."]');
+  });
+
+  it('导入进行中不算失败（避免把还在装载的报成坏）', async () => {
+    const { sources } = autoSources(
+      ctxWith([]),
+      [dp('dsh-loading', { moduleLoaded: false, exportForm: 'unknown', importing: true, state: 1 })],
+      [],
+    );
+    const report = await sources[0]!.probe();
+
+    expect(report.findings.some((f) => f.code === 'auto.import-failed')).toBe(false);
+  });
+
+  it('分组条目不算插件（不该按插件检查）', async () => {
+    const { sources } = autoSources(
+      ctxWith([]),
+      [dp('my-group', { isGroup: true, moduleLoaded: false, exportForm: 'unknown' })],
+      [],
+    );
+    const report = await sources[0]!.probe();
+
+    expect(report.findings.some((f) => f.code === 'auto.import-failed')).toBe(false);
+  });
+
+  it('导出形态不合标准 → auto.export-form-invalid（error）', async () => {
+    // 模块进来了，但既没有 default 函数也没有具名 apply：
+    // unwrapExports 拿不到插件，注册不成，而插件侧看不到任何提示。
+    const { sources } = autoSources(
+      ctxWith([]),
+      [dp('dsh-badform', { moduleLoaded: true, exportForm: 'invalid' })],
+      [],
+    );
+    const report = await sources[0]!.probe();
+
+    expect(report.status).toBe('failing');
+    const finding = report.findings.find((f) => f.code === 'auto.export-form-invalid');
+    expect(finding).toBeDefined();
+    expect(finding?.hint).toContain('apply');
+  });
+
+  it('合法导出形态不报错（default 或 apply 都算）', async () => {
+    for (const form of ['default', 'apply'] as const) {
+      const { sources } = autoSources(ctxWith([]), [dp('dsh-ok', { exportForm: form })], []);
+      const report = await sources[0]!.probe();
+      expect(report.findings.some((f) => f.code === 'auto.export-form-invalid')).toBe(false);
+    }
   });
 
   it('意外未激活 → auto.fiber-inactive（warn）', async () => {
@@ -416,17 +457,7 @@ describe('自动结构探针的检查项', () => {
     const { sources } = autoSources(ctxWith([]), [mk('dsh-x', 2)], []);
     void sources;
 
-    const withExport = autoSources(ctxWith([]), [
-      {
-        id: 'dsh-y',
-        state: 2,
-        external: true,
-        disabled: false,
-        declaredInject: [],
-        probeExport: exported,
-        live: undefined,
-      },
-    ]);
+    const withExport = autoSources(ctxWith([]), [dp('dsh-y', { probeExport: exported })]);
 
     const result = await withExport.sources[0]!.probe();
     expect(result.status).toBe('failing');

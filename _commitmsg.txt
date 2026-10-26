@@ -1,0 +1,20 @@
+feat(scope): 自动层扩至 5 项——查模块导入与导出形态
+
+用户要求扩自动层质量。新增两项，全部从 loader 元数据推导、插件零配合：
+
+1. auto.import-failed —— entry.moduleNamespace 为空且不在导入中。
+   Loader 的 _init() 只在 import 成功后给 moduleNamespace 赋值；失败时
+   只记一条 logger.error 就返回。所以该字段为空 = 模块根本没进来，
+   也就是「缺 exports[.] 导致整个包被静默跳过」那类故障 ——
+   CLIS 自己踩过一次：patch 行全 absent、毫无报错。
+   hint 直接点名 exports[.]。
+
+   排除三种误报：导入中（_initTask 未清）、已关闭、分组条目。
+
+2. auto.export-form-invalid —— 模块进来了但既没有可用的 default，
+   也没有具名 apply。unwrapExports 是 exports.default ?? exports，
+   所以合法形态只有两种（harness 标准：不可混用）；两者都无则注册不成
+   插件，而插件侧看不到任何提示。
+
+真机验证零误报：12 个被监督插件全部干净（唯一发现是 memory-manager
+报的一条真实 R14，已修）。tsc 0；vitest 46 文件 602 例。

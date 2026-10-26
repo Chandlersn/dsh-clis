@@ -62,6 +62,27 @@ export interface DiscoveredPlugin {
   readonly declaredInject: readonly string[];
   /** 插件模块根导出的探针（若有）—— 协作层。 */
   readonly probeExport: unknown;
+  /**
+   * 模块是否**导入成功**。
+   *
+   * Loader 的 `_init()` 只在 import 成功后给 `moduleNamespace` 赋值；import
+   * 失败时只记一条 logger.error 就返回。所以这个字段为空 + 未在导入中
+   * = 模块根本没进来 —— 也就是「缺 `exports["."]` 导致整个包被静默跳过」
+   * 这类故障（CLIS 自己踩过一次）。
+   */
+  readonly moduleLoaded: boolean;
+  /**
+   * 导出形态是否**符合 harness 标准**。
+   *
+   * Loader 的 `unwrapExports` 优先取 `default`，否则用整个命名空间；因此
+   * 合法形态只有两种：`default` 是函数（Service 类或 apply），或有具名
+   * `apply`。两者都无 = 模块进来了但注册不成插件。
+   */
+  readonly exportForm: 'default' | 'apply' | 'invalid' | 'unknown';
+  /** 是否是分组条目（分组是容器，没有模块，不该按插件检查）。 */
+  readonly isGroup: boolean;
+  /** import 是否仍在进行中（进行中不算失败）。 */
+  readonly importing: boolean;
   /** 保留 entry 引用，供探针在**执行时**重新读状态（发现装载中途的状态）。 */
   readonly live: unknown;
 }
@@ -275,6 +296,10 @@ export function listPlugins(ctx: Context): DiscoveredPlugin[] {
         disabled,
         declaredInject: normalizeInject(entry.options?.inject),
         probeExport: findProbeExport(entry.moduleNamespace),
+        moduleLoaded: entry.moduleNamespace !== undefined,
+        exportForm: detectExportForm(entry.moduleNamespace),
+        isGroup: Boolean((entry.options as { group?: unknown } | undefined)?.group),
+        importing: (entry as { _initTask?: unknown })._initTask !== undefined,
         live: entry,
       });
     }
@@ -282,6 +307,32 @@ export function listPlugins(ctx: Context): DiscoveredPlugin[] {
     return [];
   }
   return found;
+}
+
+/**
+ * 判断模块的导出形态是否符合 harness 标准。
+ *
+ * Loader 的 `unwrapExports` 是：`exports.default ?? exports`，再对
+ * `__esModule` 的情况再取一次 `default`。所以合法形态只有两种：
+ * - `default` 是函数（Service 类，或本身就是 apply）
+ * - 没有 default、但有具名 `apply`
+ *
+ * 两者都无 ⇒ 模块导入成功却注册不成插件 —— 这种失败只会在 Loader 里
+ * 抛错，插件侧看不到任何提示。
+ *
+ * @param namespace 插件模块的导出对象。
+ * @returns 形态标签。
+ */
+function detectExportForm(namespace: unknown): DiscoveredPlugin['exportForm'] {
+  if (namespace === null || namespace === undefined) return 'unknown';
+  if (typeof namespace !== 'object') {
+    // 默认导出被直接当作命名空间的情况（极少见）
+    return typeof namespace === 'function' ? 'default' : 'invalid';
+  }
+  const ns = namespace as Record<string, unknown>;
+  if (typeof ns['default'] === 'function') return 'default';
+  if (typeof ns['apply'] === 'function') return 'apply';
+  return 'invalid';
 }
 
 /** 读取 entry 的**当前**状态（可能与 listPlugins 时不同）。 */
@@ -309,9 +360,14 @@ function serviceAvailable(ctx: Context, name: string): boolean {
  * 造一个**自动结构探针**：完全从宿主元数据推导，插件无需任何配合。
  *
  * 检查项都是"静默失效"的典型形态 —— 不查就会一直没人发现：
- * 1. **卡在装载**（state 1）：通常是 inject 未被满足，插件从未真正生效；
- * 2. **意外未激活**（state 0、且未被显式关闭）：装载失败后残留的条目；
- * 3. **声明的依赖未被满足**：插件自己以为能拿到，实际拿不到。
+ * 1. **模块没导入成功**：`moduleNamespace` 为空。最典型的成因是
+ *    `package.json` 缺 `exports["."]` —— Loader 会**静默跳过整个包**，
+ *    patch 行全 absent，没有任何报错（CLIS 自己踩过一次）。
+ * 2. **导出形态不符合标准**：模块进来了却没有可用的 `default` 或 `apply`；
+ *    `unwrapExports` 拿不到插件，注册不成。
+ * 3. **卡在装载**（state 1）：通常是 inject 未被满足，插件从未真正生效；
+ * 4. **意外未激活**（state 0、且未被显式关闭）：装载失败后残留的条目；
+ * 5. **声明的依赖未被满足**：插件自己以为能拿到，实际拿不到。
  *
  * @param ctx 插件上下文。
  * @param plugin 被监督的插件。
@@ -330,7 +386,34 @@ function structuralProbe(ctx: Context, plugin: DiscoveredPlugin): ProbeSource {
 
       const state = liveState(plugin);
 
-      // 1. 卡在装载
+      // 1. 模块没导入成功。
+      //    只在"确实不在导入中、也未被关闭、且不是分组"时判 —— 否则会把
+      //    还在装载的条目误报成失败。用 warn 而非 error：导入失败通常
+      //    在宿主日志里有一条 logger.error，且若只是尚未开始，下一轮就消失。
+      if (!plugin.disabled && !plugin.isGroup && !plugin.importing && !plugin.moduleLoaded) {
+        findings.push({
+          code: 'auto.import-failed',
+          severity: 'warn',
+          message: `${plugin.id} 的模块没有导入成功：它不会提供任何功能`,
+          hint:
+            '最常见成因是 package.json 缺 exports["."]（Loader 会静默跳过整个包，patch 行全 absent）；' +
+            '其次是模块在导入期抛错 —— 两者都会在宿主日志留一条 error',
+        });
+      }
+
+      // 2. 导出形态不符合 harness 标准（模块进来了但注册不成插件）
+      if (plugin.moduleLoaded && plugin.exportForm === 'invalid') {
+        findings.push({
+          code: 'auto.export-form-invalid',
+          severity: 'error',
+          message: `${plugin.id} 的导出形态不符合插件标准：既没有可用的 default，也没有具名 apply`,
+          hint:
+            '标准只接受两种形态（不可混用）：export function apply(ctx, config)，' +
+            '或 default 导出 Service 类；据此改插件入口',
+        });
+      }
+
+      // 3. 卡在装载
       if (state === 1) {
         findings.push({
           code: 'auto.fiber-loading',
@@ -340,7 +423,7 @@ function structuralProbe(ctx: Context, plugin: DiscoveredPlugin): ProbeSource {
         });
       }
 
-      // 2. 意外未激活
+      // 4. 意外未激活
       if (state === 0 && !plugin.disabled) {
         findings.push({
           code: 'auto.fiber-inactive',
@@ -350,7 +433,7 @@ function structuralProbe(ctx: Context, plugin: DiscoveredPlugin): ProbeSource {
         });
       }
 
-      // 3. 声明的依赖未被满足 —— 静默失效最常见的形态
+      // 5. 声明的依赖未被满足 —— 静默失效最常见的形态
       const missing = plugin.declaredInject.filter((name) => !serviceAvailable(ctx, name));
       if (missing.length > 0) {
         findings.push({
