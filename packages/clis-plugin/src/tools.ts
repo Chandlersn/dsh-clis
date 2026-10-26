@@ -7,6 +7,7 @@ import type {
 } from '@clis/clis-contracts';
 
 import { getDefineTool } from './cordis-shim';
+import { SemiAutoExecutor } from './executor';
 import { toToolJson } from './tool-json';
 import { ClisHistoryStore, fingerprint } from './history';
 
@@ -152,6 +153,12 @@ export function registerTools(ctx: Context): void {
           type: 'string',
           description: '可选：上一轮实际发生了什么（一句话）。会随着结果一起归档，供下次判断时回看。',
         },
+        allow_writes: {
+          type: 'array',
+          description:
+            '可选：显式放行的**写动作**白名单。执行器默认只自动执行只读动作（测量/追溯/枚举/定位）；写动作（施加干预/调参/注入阻尼/改延迟/覆盖旧因）一律拦下。只有你明确列出某个写动作，它才会被执行。',
+          items: { type: 'string' },
+        },
       },
       output: {
         schema: { type: 'json' },
@@ -217,16 +224,18 @@ export function registerTools(ctx: Context): void {
           (preClassified?.causal_type ?? 'unknown') as string,
         );
 
+        // 半自动执行器：只读动作自动放行，写动作拦下等授权。
+        //
+        // 为什么不再用"恒返回 ok 的桩"：桩会让反馈永远判 effective，
+        // 闭环失去意义。半自动执行器让只读观测真实发生（虽然观测数据
+        // 仍需 agent 采集），并把写动作的"未授权"如实记为失败信号 ——
+        // 这样反馈能看到真实阻碍，而不是被假成功掩盖。
+        const allowWrites = rawArgs.allow_writes as readonly string[] | undefined;
+        const executor = new SemiAutoExecutor({ allowWrites });
+
         const result = await orchestrator.run(problem, {
           boundary: toBoundary(rawArgs),
-          executor: {
-            // 执行器只回执"这一步能否做到"，不代表"问题是否解决"——
-            // 后者由调用方通过 last_outcome 如实回填。
-            execute: async (invocation) => ({
-              status: 'ok',
-              detail: `已规划动作 ${invocation.action}（CLIS 只做推理与规划，不产生真实副作用）`,
-            }),
-          },
+          executor,
           ...(priorSignals.length > 0 || priorRollbacks > 0
             ? {
                 history: {
@@ -279,6 +288,16 @@ export function registerTools(ctx: Context): void {
           decision: result.decision,
           traces: result.state.traces,
           summary: result.reason,
+          // 半自动执行器的实际动作：只读放行了哪些、写动作被拦下哪些。
+          // 这是"半自动"的可见凭据 —— 你能看到它做了什么、没做什么。
+          actions: {
+            observed: executor.observations,
+            blocked_writes: executor.pendingWrites,
+            note:
+              executor.pendingWrites.length > 0
+                ? `有 ${executor.pendingWrites.length} 个写动作因未授权而未执行。如需执行，请在 allow_writes 里显式列出动作名。`
+                : '本轮无写动作，或已在 allow_writes 中放行。',
+          },
           // 关键区分：`signal_type` 判的是**本轮规划**（桩执行器恒 ok ⇒ 恒 effective），
           // 而 `last_outcome` 是**你实际动手**的结果。历史里累计多次失败时，
           // 单看 effective 会误以为问题解决了 —— 这里显式点明，并给出该做什么。
