@@ -22,7 +22,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { ENTRY_FILES, entriesToReload, entryFileOf } from '../packages/clis-plugin/src/hot-reload';
+import {
+  CORE_VERSION,
+  ENTRY_FILES,
+  coreVersionOf,
+  entriesToReload,
+  entryFileOf,
+} from '../packages/clis-plugin/src/hot-reload';
 
 const ROOT = process.cwd();
 
@@ -228,5 +234,95 @@ describe('内核被部署删掉时仍能换装（2026-10-30 第二次真机事�
   it('等磁盘稳定而非固定静默期（deploy 逐文件删除再写入会撞中间态）', () => {
     expect(src).toContain('waitForStableFingerprint');
     expect(src).toContain('连续两次指纹相同');
+  });
+});
+
+describe('内核版本门：防倒挂，但不能消除首轮重启', () => {
+  /**
+   * 死结：内核由运行中的代码写出，所以旧代码写出的永远是旧内核。
+   *
+   * 版本门的作用：部署后磁盘上已是新内核，旧监视器想覆盖时被拒绝 ——
+   * 防止**版本倒挂**。
+   *
+   * 但它**不能**让首轮自动接管（2026-10-30 真机验证推翻了这个设想）：
+   * 旧监视器读到新内核也不会调用 `reloadEntries` —— 那个函数在旧代码里
+   * 根本不存在，旧代码的调用点只有 `selfReload`（只换包根）。
+   *
+   * 根本原因：**监视器无法替换自身**。宿主也没有外部重载入口
+   * （cordis.patch.yml 热加载走 fiber.update → restart()，复用已加载的
+   * callback，同样不重新 import）。故首轮仍需重启一次。
+   *
+   * 本套件钉住"版本门确实存在且不降级"，并明确记录这个边界，
+   * 免得后来者以为它能消除重启、继续在错的方向上试。
+   */
+  const src = readFileSync(join(ROOT, 'packages', 'clis-plugin', 'src', 'hot-reload.ts'), 'utf8');
+
+  it('宿主侧 CORE_VERSION 与内核字符串里的声明一致（机器核对）', () => {
+    const core = src.slice(src.indexOf('const RELOAD_CORE_SOURCE'));
+    const declared = /export const CORE_VERSION = (\d+)/u.exec(core);
+    expect(declared, '内核里没有 CORE_VERSION 声明').not.toBeNull();
+    expect(Number(declared![1])).toBe(CORE_VERSION);
+  });
+
+  it('coreVersionOf：读得出版本；老内核（无该常量）返回 0', () => {
+    expect(coreVersionOf('export const CORE_VERSION = 7;\n')).toBe(7);
+    expect(coreVersionOf('export const CORE_VERSION = 2;\n// trailing')).toBe(2);
+    // 老内核没有这个常量 —— 任何新版都该覆盖它
+    expect(coreVersionOf('export async function selfReload() {}')).toBe(0);
+    expect(coreVersionOf('')).toBe(0);
+  });
+
+  it('写入方不降级：磁盘版本更高时保留', () => {
+    const body = src.slice(src.indexOf('export async function ensureReloadCore'));
+    expect(body.slice(0, 900)).toContain('coreVersionOf(existing) > CORE_VERSION');
+  });
+
+  it('源码里明确记着"不能消除首轮重启"这个边界（防止后人重走弯路）', () => {
+    expect(src).toContain('监视器无法替换自身');
+    expect(src).toContain('首轮部署仍需重启一次');
+  });
+
+  it('构建脚本把内核写进产物，并校验它带版本号', () => {
+    const bundle = readFileSync(join(ROOT, 'scripts', 'bundle.mjs'), 'utf8');
+    expect(bundle).toContain('bundle/reload-core.mjs');
+    expect(bundle).toMatch(/CORE_VERSION = \\d\+/);
+  });
+
+  it('打包脚本会复制 .mjs 并把内核列进必需清单', () => {
+    const pkg = readFileSync(join(ROOT, 'scripts', 'package.mjs'), 'utf8');
+    expect(pkg).toContain(".endsWith('.mjs')");
+    expect(pkg).toContain("'reload-core.mjs'");
+  });
+});
+
+describe('监视器永不因换装失败而停摆（2026-10-30 真机事故）', () => {
+  /**
+   * 事故：换装失败且未回滚时，旧代码执行 `return` —— 注释写着
+   * "停止监视：代码已死，轮询无意义"。这个判断是错的。
+   *
+   * 换装失败常见于**暂时状态**：部署写了一半、内核被删、entry 暂时不一致。
+   * 这些下一次就会好。一旦 return，监视器永久退出，此后所有改动静默失效，
+   * 界面上毫无提示。
+   *
+   * 实测后果：连续两次部署时第二次失败，监视器就此退出；之后把探针撤掉的
+   * 部署也不再触发，真机行为永远停在失败那一刻，直到重启宿主。
+   *
+   * 现在改成：退避到上限后继续轮询，日志持续提示。
+   */
+  const src = readFileSync(join(ROOT, 'packages', 'clis-plugin', 'src', 'hot-reload.ts'), 'utf8');
+  const tickBody = src.slice(src.indexOf('const tick = async'), src.indexOf('void tick();'));
+
+  it('换装失败分支里没有 return（不再永久停摆）', () => {
+    expect(tickBody).not.toContain('停止监视：代码已死');
+  });
+
+  it('失败后仍会安排下一次轮询（setTimeout 在 catch 之外）', () => {
+    const afterCatch = tickBody.slice(tickBody.indexOf('catch (error)'));
+    expect(afterCatch).toContain('setTimeout(() => void tick(), POLL_MS)');
+  });
+
+  it('两条失败分支都退避并继续，而不是退出', () => {
+    expect(tickBody).toContain('已回滚');
+    expect(tickBody).toContain('监视器保持运行');
   });
 });

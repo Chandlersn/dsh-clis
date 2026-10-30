@@ -81,10 +81,10 @@ requireDir(PACKAGING, 'packaging/ 是受版本控制的手写资产目录，不�
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-// 1) JS 产物
+// 1) JS 产物（含 reload-core.mjs —— 换装内核随产物交付，首轮无需重启）
 let jsCount = 0;
 for (const name of readdirSync(BUNDLE)) {
-  if (!name.endsWith('.js')) continue;
+  if (!name.endsWith('.js') && !name.endsWith('.mjs')) continue;
   cpSync(join(BUNDLE, name), join(OUT, name));
   jsCount += 1;
 }
@@ -103,6 +103,8 @@ const REQUIRED = [
   'clis-strategy.js',
   'clis-feedback.js',
   'clis-orchestrator.js',
+  // 换装内核：缺了它首轮部署后仍要重启一次宿主才能自举
+  'reload-core.mjs',
   'cordis.patch.yml',
   'package.json',
   'icon.svg',

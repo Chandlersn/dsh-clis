@@ -56,9 +56,16 @@ const BACKOFF_MAX_MS = 120_000;
 const RELOAD_CORE_SOURCE = String.raw`
 // 智能热重载内核 —— 照搬 memory-manager src/reload.js（源自 dsh-our-free-model
 // 2.5.3，与内核 HMR 同一套公开原语）。详见该文件头注释。
+//
+// ⚠️ 改这个文件必须同时提升 CORE_VERSION（下方常量）。写入方按版本号比较，
+// **版本低的不会覆盖版本高的** —— 这是"首轮自举不需要重启"的关键：
+// 旧监视器想用旧内核覆盖磁盘上的新内核时会被拒绝。
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRequire, registerHooks } from 'node:module';
+
+/** 内核版本：每次改动内核语义都要 +1，且必须与宿主侧 CORE_VERSION 同步。 */
+export const CORE_VERSION = 2;
 
 let inFlight = null;
 const hooksKey = Symbol.for('dsh-clis.reload-hooks');
@@ -278,16 +285,41 @@ export async function reloadEntries(ctx, options = {}) {
 /**
  * 把内核写成安装目录下的 `reload-core.mjs`，返回它的 URL。
  *
- * 幂等：内容未变不重写（避免自己触发自己的文件监视）。
+ * ## 版本门：防止"旧代码把新内核覆盖回去"
+ *
+ * 内核由运行中的代码写出，于是有版本倒挂风险：部署后磁盘上已是新内核，
+ * 但**旧监视器还活着**，它想写自己那份旧内核。没有版本门的话，它会把
+ * 新内核覆盖掉，自举就永远停在旧版本上。
+ *
+ * 所以按版本号比较：磁盘版本更高就保留、绝不降级。
+ *
+ * ## 但它**不能**消除首轮重启（诚实的边界）
+ *
+ * 曾经以为版本门足以让部署后自动接管。真机验证推翻了这一点：
+ * 旧监视器读到新内核之后，**并不会调用** `reloadEntries` —— 因为
+ * `reloadEntries` 这个函数在旧代码里根本不存在，旧代码的调用点只有
+ * `selfReload`（只换包根）。于是四个组件仍是旧模块。
+ *
+ * 根本原因：**监视器无法替换自身**。它加载模块的代码就是它自己，
+ * 换装能力只对"别的 entry"生效；要让新的 `index.js` 生效，必须有一个
+ * 它之外的东西重新 import 它。宿主没有这样的外部重载入口
+ * （`cordis.patch.yml` 热加载只走 `fiber.update` → `restart()`，
+ * 复用已加载的 callback，同样不重新 import）。
+ *
+ * 因此首轮部署仍需重启一次宿主。版本门保证的是**之后不再倒挂**：
+ * 新代码接管后，任何旧副本都覆盖不回它。
  *
  * @param installDir 安装目录（bundle 所在处）。
  * @returns 内核模块的 file:// URL。
  */
 export async function ensureReloadCore(installDir: string): Promise<string> {
   const target = pathJoin(installDir, 'reload-core.mjs');
+  let existing: string | undefined;
   try {
-    const existing = await readFile2(target);
+    existing = await readFile2(target);
     if (existing === RELOAD_CORE_SOURCE) return fileUrl(target);
+    // 磁盘上的版本更高：保留它，绝不降级（这是自举能自动完成的唯一原因）。
+    if (coreVersionOf(existing) > CORE_VERSION) return fileUrl(target);
   } catch {
     /* first run */
   }
@@ -295,6 +327,28 @@ export async function ensureReloadCore(installDir: string): Promise<string> {
   await mkdir(installDir, { recursive: true });
   await writeFile2(target, RELOAD_CORE_SOURCE, 'utf8');
   return fileUrl(target);
+}
+
+/**
+ * 本模块携带的内核版本 —— 必须与 `RELOAD_CORE_SOURCE` 里的 `CORE_VERSION` 一致。
+ *
+ * 为什么单独声明而不是从字符串里解析：解析要处理转义与格式，容易漂移；
+ * 两个常量并列、由测试机器核对，比运行时正则更可靠。
+ */
+export const CORE_VERSION = 2;
+
+/**
+ * 从内核源码文本里读出它声明的版本。
+ *
+ * 读不到（旧版内核没有这个常量）时返回 0 —— 意味着"任何新版都比它新"，
+ * 这正是我们要的：老内核可以被安全替换。
+ *
+ * @param source 内核源码文本。
+ * @returns 版本号；无法识别时为 0。
+ */
+export function coreVersionOf(source: string): number {
+  const match = /export const CORE_VERSION = (\d+)/u.exec(source);
+  return match === null ? 0 : Number(match[1]);
 }
 
 /** 读文件文本；不存在时抛错由调用方处理。 */
@@ -519,10 +573,28 @@ export function startHotReload(
           await sleep(backoff);
           baseline = await mtimeFingerprint(installDir);
         } else {
-          // 旧代码没恢复成：退避并要求人工重启（状态不会更糟）
+          // 旧代码没恢复成：退避后**继续**监视，绝不永久停摆。
+          //
+          // ⚠️ 这里原来写的是 `return`（"代码已死，轮询无意义"）。
+          // 2026-10-30 真机发现那是错的：换装失败并不等于代码死了 ——
+          // 常见原因恰恰是部署写了一半、内核被删、entry 暂时不一致，
+          // 这些都是**下一次就会好**的暂时状态。一旦 return，监视器永久
+          // 停摆，此后所有改动都静默失效，而界面上毫无提示。
+          //
+          // 实测后果：连续两次部署时第二次换装失败，监视器就此退出；
+          // 之后所有部署（含把探针撤掉的部署）都不再触发，真机行为永远
+          // 停在失败那一刻的版本上，直到重启宿主。
+          //
+          // 现在改成：退避到上限后继续轮询，并在日志里持续提示需要人工
+          // 关注。反复失败也不会打爆日志 —— 退避上限 120s。
           consecutiveFailures += 1;
-          logger?.warn?.(`clis: 热重载失败且未回滚（${error ?? 'unknown'}）——请重启宿主`);
-          return; // 停止监视：代码已死，轮询无意义
+          const backoff = Math.min(BACKOFF_MAX_MS, 4_000 * 2 ** Math.min(consecutiveFailures, 5));
+          logger?.warn?.(
+            `clis: 热重载失败且未回滚（${error ?? 'unknown'}）；` +
+              `已连续失败 ${consecutiveFailures} 次，${Math.round(backoff / 1000)}s 后重试（监视器保持运行）`,
+          );
+          await sleep(backoff);
+          baseline = await mtimeFingerprint(installDir);
         }
       } else if (baseline === '') {
         baseline = current;
