@@ -44,14 +44,31 @@ export interface InterventionMetric {
   readonly signature?: string;
   /** 被调用的 CLIS 工具名（adopted 时）。 */
   readonly via?: string;
+  /**
+   * 采纳时距最近一次 hinted 的毫秒数（adopted 时，且确实有前提提示）。
+   *
+   * 为什么记它：这是"这次调用是否由提示引发"的唯一凭据。
+   * 没有这个字段，adopted 就只是"某 agent 调了 CLIS"，与提示无关。
+   */
+  readonly after_hint_ms?: number;
 }
 
 /** 一段汇总窗口的采用情况。 */
 export interface InterventionSummary {
   readonly hinted: number;
+  /** **有条件**的采纳数：此前的 hinted 之后、同一 agent 调了 CLIS 的次数。 */
   readonly adopted: number;
   /** 采用率 adopted/hinted（0–1）；hinted=0 时为 null（尚无样本）。 */
   readonly adoptionRate: number | null;
+  /**
+   * 与提示无关的 CLIS 调用次数（agent 自己想起来用的）。
+   *
+   * 单列而不是并进 adopted：它**不进分子**。一个 agent 在没有任何提示的情况下
+   * 自发调用 CLIS，说明工具本身有用，但证明不了"提示被采纳"。
+   * 混进分子会让采用率虚高（2026-10-30 实测：5 次 adopted 里 1 次此前零提示，
+   * 报出 0.83 的健康假象）。
+   */
+  readonly spontaneous: number;
   /** 最近 N 天才有数据；0 表示还没有任何介入发生。 */
   readonly windowDays: number;
 }
@@ -79,7 +96,32 @@ export async function recordMetric(dshHome: string, entry: Omit<InterventionMetr
 }
 
 /**
+ * 采纳判定的**时间条件**：一次 CLIS 调用要归功于提示，必须发生在
+ * 同一 agent 的某次 hinted 之后这么长的窗口内。
+ *
+ * 为什么是 30 分钟：提示的作用是"这一轮别原样重试"，agent 采纳后通常
+ * 紧接着就调 CLIS；30 分钟足够覆盖一轮长任务，又不至于把两小时后
+ * 碰巧的自主调用算成"被提示引发"。
+ */
+const ADOPTION_WINDOW_MS = 30 * 60_000;
+
+/**
  * 读窗口内的记录并汇总。
+ *
+ * ## 采纳必须**有条件**（2026-10-30 真实数据修正）
+ *
+ * 旧版把 `adopted` 与 `hinted` 当两个独立计数器直接相除。实测数据：
+ *
+ * ```
+ * 07:04:41  adopted clis_classify  ← 此前 hinted: 0
+ * 07:13:57  adopted clis_classify  ← 此前 hinted: 1
+ * ```
+ *
+ * 5 次 adopted 里 1 次此前零提示 —— 那只是"这个 agent 调了 CLIS"，
+ * 不是"提示被采纳"。分母 6、分子 5 的巧合让采用率报出 0.83 的健康假象。
+ *
+ * 现在按**事件顺序**重放：一次 adopted 只有在同一 agent 此前 30 分钟内有
+ * hinted 才进分子；没有前提的记为 `spontaneous`，单列但不进分子。
  *
  * 坏行跳过（照 memory-manager readUsage 的先例）；数量上限 10_000 行——
  * 正常使用远达不到，只为防病态文件拖垮读取。
@@ -91,6 +133,9 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
   const path = metricsFilePath(dshHome);
   let hinted = 0;
   let adopted = 0;
+  let spontaneous = 0;
+  /** agent → 该 agent 最近一次 hinted 的时间戳（按事件顺序滚动）。 */
+  const lastHintAt = new Map<string, number>();
   try {
     const raw = await readFile(path, 'utf8');
     const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
@@ -100,11 +145,24 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
       if (!s) continue;
       if (++scanned > 10_000) break;
       try {
-        const e = JSON.parse(s) as { t?: unknown; kind?: unknown };
+        const e = JSON.parse(s) as { t?: unknown; kind?: unknown; agent?: unknown };
         const t = Date.parse(String(e.t));
         if (!Number.isFinite(t) || t < cutoff) continue;
-        if (e.kind === 'hinted') hinted += 1;
-        else if (e.kind === 'adopted') adopted += 1;
+        const agent = typeof e.agent === 'string' ? e.agent : '';
+        if (e.kind === 'hinted') {
+          hinted += 1;
+          // 文件按时间追加，但坏时钟可能让顺序错乱：取较晚者，
+          // 免得一条时间戳倒退的记录把"最近提示"改早、误伤后续采纳判定。
+          const prior = lastHintAt.get(agent);
+          if (prior === undefined || t > prior) lastHintAt.set(agent, t);
+        } else if (e.kind === 'adopted') {
+          const hintAt = lastHintAt.get(agent);
+          if (hintAt !== undefined && t >= hintAt && t - hintAt <= ADOPTION_WINDOW_MS) {
+            adopted += 1;
+          } else {
+            spontaneous += 1;
+          }
+        }
       } catch {
         /* skip corrupt line */
       }
@@ -116,6 +174,7 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
     hinted,
     adopted,
     adoptionRate: hinted === 0 ? null : adopted / hinted,
+    spontaneous,
     windowDays,
   };
 }

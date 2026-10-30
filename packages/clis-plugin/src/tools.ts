@@ -576,6 +576,8 @@ export function registerTools(
           hinted: summary.hinted,
           adopted: summary.adopted,
           adoption_rate: summary.adoptionRate,
+          // 与提示无关的自主调用：单列，**不进分子**。
+          spontaneous: summary.spontaneous,
           // 判读指引：数字本身不说明好坏，解释框架要给足。
           reading:
             summary.hinted === 0
@@ -583,6 +585,11 @@ export function registerTools(
               : summary.adoptionRate !== null && summary.adoptionRate >= 0.3
                 ? '采用率健康：提示被看见且多数被采纳。'
                 : '采用率偏低：提示被看见但没被信任。优先检查提示措辞是否太像命令、触发时机是否太频繁。',
+          // 采纳口径说明：adopted 是**有条件**的（同一 agent 此前 30 分钟内有提示）。
+          // 不写这句，读者会以为 adopted 只是"调过 CLIS 的次数"。
+          definition:
+            'adopted 只统计「同一 agent 此前 30 分钟内收到过提示」的 CLIS 调用；' +
+            'spontaneous 是没有任何前提提示的自主调用，不计入分子。',
         });
       },
     }),

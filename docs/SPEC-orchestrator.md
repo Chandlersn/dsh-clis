@@ -59,6 +59,34 @@ clis-orchestrator **只做编排与决策**。禁止：
 > 注：`lock_and_continue` 之所以算 `effective` 终局，是因为它表示"本轮不再回退、按当前类型继续推进"，
 > 而不是"结果已验证有效"。调用方若需区分，读 `decision.action`。
 
+### 2.2 无改动早退（`noChangeAtAll`）
+
+在走 §3 决策之前先判一次：**这一轮没有任何步骤真的改动了东西**。
+
+条件：`producedChange === false` **且** 存在 `observed_only` 步骤。
+
+命中即**立即返回** `outcome='manual_intervention'`（不消耗 `rollback_count`、不再换路径）。
+
+> **为什么不是"回退耗尽"**：换路径不会有不同结果 —— 所有候选路径在同一个执行器下
+> 都是同样的只读观测。真正缺的东西在第一次就已知，再绕就是空转。
+>
+> **2026-10-30 修正（真实数据）**：旧判据额外要求 `blockedSteps > 0`，只覆盖了
+> "只读 + 写动作被拦"这一形态。但策略库里还有一整类**纯只读路径**——
+> `probe.minimal` / `probe.broad`（探测+观察）、`decompose.compose_sub`（只拆子模块），
+> 它们本来就没有写动作可拦。旧判据下早退失效，绕满回退上限才认输：
+> 真机 `clis_run` 的 `nested` 类型 4/4 次返回 `manual_intervention` +
+> `rollback_count=3` + 10 个只读步骤，对调用方等于"这条路走不通"。
+
+**两种结局用两套话术**（它们要调用方做的事完全不同）：
+
+| 形态 | `decision.reason` 指向 | 调用方该做什么 |
+| --- | --- | --- |
+| 有写动作被拦（`blockedSteps > 0`） | `allow_writes` | 显式授权写动作后重试 |
+| 纯只读路径（`blockedSteps === 0`） | `last_outcome` | 按观测计划采集数据后回填 `last_outcome` |
+
+两种都必须在 `traces` 里追加本轮记录（完整 trace 是硬约束），
+且 `note` 要区分"需授权写动作"与"本路径不含写动作"。
+
 ## 3. 决策优先级（自上而下，命中即返回）
 
 输入：`round.signal.signal_type`、`round.execution.status`、`round.causal_type`、`state`、`options`。

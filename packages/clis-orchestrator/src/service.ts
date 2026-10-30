@@ -131,25 +131,33 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
         options.history !== undefined ? { history: options.history } : undefined,
       );
 
-      // —— 只读模式下没有产生任何改动：换路径不会有不同结果 ——
+      // —— 没有任何一步真的改动了东西：换路径不会有不同结果 ——
       //
-      // 判据是"有没有任何一步真的改动了东西"，而不是"全部都是 observed_only"：
-      // 半自动执行器下，只读步骤记 observed_only、写动作被拦记 failed。
-      // 于是整条路径既非全 observed_only 也非全 failed —— 但它确实什么都没改。
+      // 判据是"有没有任何一步真的改动了东西"，**不要求存在被拦下的写动作**。
       //
-      // 为什么必须早退：所有候选路径在本执行器下都是同样结局，换一条还是
-      // 只观测+被拦。实测会绕 13 轮（4 路径 × 3 轮回退）才 manual_intervention，
-      // 期间对系统零改动。真正需要的信息"写动作没被放行"在第一次就已知。
+      // 为什么不再要求 `blockedSteps > 0`（2026-10-30 真实数据修正）：
+      // 库里有一整类**纯只读路径**——`probe.minimal` / `probe.broad` 两步全是
+      // 探测与观察，`decompose.compose_sub` 只有 `partition_sub_modules`。
+      // 它们本来就没有写动作可拦，于是旧判据 `blockedSteps > 0` 不成立、
+      // 早退失效，落到 decide() 判 ineffective → switch_path 换到另一条同样
+      // 纯只读的路径 → 绕满回退上限才认输。真机实测：nested 类型 4/4 次调用
+      // 全部以 `manual_intervention` + `rollback_count=3` + 10 个只读步骤收场，
+      // 对调用方等于"这条路走不通"，而它其实给出了完整的观测计划。
+      //
+      // 两种结局要用两套话术（它们要调用方做的事完全不同）：
+      // - 有写动作被拦 → 缺的是**授权**（allow_writes）；
+      // - 纯只读路径   → 缺的是**数据**（按观测计划采集后回填 last_outcome）。
       const stepSignals = execution.signals.filter((item) => item.step_index >= 0);
       const producedChange = stepSignals.some((item) => item.kind === 'observed');
       const observedOnly = stepSignals.filter((item) => item.kind === 'observed_only').length;
       const blockedSteps = stepSignals.filter((item) => item.kind === 'failed').length;
-      const noChangeAtAll = !producedChange && observedOnly > 0 && blockedSteps > 0;
+      const noChangeAtAll = !producedChange && observedOnly > 0;
 
       if (noChangeAtAll) {
         const blocked = execution.blocked_actions.map((item) => item.action);
         const blockedHint =
           blocked.length > 0 ? `（${[...new Set(blocked)].join(', ')}）` : '';
+        const writesBlocked = blockedSteps > 0;
 
         return {
           outcome: 'manual_intervention',
@@ -166,7 +174,9 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
                 signal_type: signal.signal_type,
                 action: 'manual_intervention',
                 rollback_count: state.rollback_count,
-                note: `路径 ${candidate.path_id} 全部步骤仅为只读观测，未产生任何改动：需授权写动作`,
+                note: writesBlocked
+                  ? `路径 ${candidate.path_id} 全部步骤仅为只读观测，未产生任何改动：需授权写动作`
+                  : `路径 ${candidate.path_id} 是纯只读观测路径（${observedOnly} 步），本路径不含写动作：需按观测计划采集数据`,
               },
             ],
           },
@@ -175,13 +185,15 @@ export class OrchestratorServiceImpl extends Service implements OrchestratorServ
           signal,
           decision: {
             action: 'manual_intervention',
-            reason:
-              '本路径在只读模式下无实质改动：要继续必须显式授权写动作（allow_writes），换路径不会有不同结果',
+            reason: writesBlocked
+              ? '本路径在只读模式下无实质改动：要继续必须显式授权写动作（allow_writes），换路径不会有不同结果'
+              : '本路径全部为只读观测、不含写动作：请按观测计划采集数据，回填 last_outcome 后再调用；换路径同样只是另一份观测计划',
             rollback_count: state.rollback_count,
           },
-          reason:
-            `需要授权才能推进：${observedOnly} 步只读完、${blockedSteps} 步写动作被拦下` +
-            `${blockedHint}，继续换路径不会有不同结果`,
+          reason: writesBlocked
+            ? `需要授权才能推进：${observedOnly} 步只读完、${blockedSteps} 步写动作被拦下` +
+              `${blockedHint}，继续换路径不会有不同结果`
+            : `本路径是纯只读观测（${observedOnly} 步，无写动作）：观测计划已给出，采集数据后回填 last_outcome 即可推进`,
         };
       }
 

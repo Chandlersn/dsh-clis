@@ -179,4 +179,27 @@ export function getDefineTool(): (options: Record<string, unknown>) => unknown {
   ) => unknown;
 }
 
+/**
+ * 取宿主的 `createUserMessage` —— 注入到 agent 上下文的消息必须用它造。
+ *
+ * ## 为什么必须用宿主那一份（2026-10-30 真机事故）
+ *
+ * 宿主的消息形状要求 `id` 存在且唯一：
+ * - inbox 按 id 去重（`message "<id>" is already pending` 会抛错）；
+ * - durable 校验（`assertOrdinaryMessage`）要求消息是合规对象。
+ *
+ * 手写 `{role,source,content}` 能侥幸过单条注入，但**同一轮注入两条**
+ * 就因 id 相同（都 undefined）被宿主拒绝。宿主自己的
+ * `createUserMessage` 用 `brandString(randomUUID())` 生成 id —— 唯一且合规。
+ *
+ * 同样懒加载：模块加载期就 require dsh-llm 会让四个组件入口强依赖它。
+ *
+ * @returns 宿主的 createUserMessage 函数。
+ */
+export function getCreateUserMessage(): (input: Record<string, unknown>) => unknown {
+  return loadHost('@deepseek-ai/dsh-llm').createUserMessage as (
+    input: Record<string, unknown>,
+  ) => unknown;
+}
+
 export default host;
