@@ -1,13 +1,13 @@
 import { Service } from '@deepseek-ai/cordis';
 import type { Context } from '@deepseek-ai/cordis';
 
-import { CAUSAL_CLASSIFIER_SERVICE } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE } from '@causal-layers/clis-contracts';
 import type {
   CausalClassification,
   CausalClassifierService,
   CausalProblem,
   ClassifyOptions,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { classifyProblem } from './rules';
 

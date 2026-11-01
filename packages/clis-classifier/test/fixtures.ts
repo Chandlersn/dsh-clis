@@ -1,4 +1,4 @@
-import type { CausalProblem, FourAnswers, TriState } from '@clis/clis-contracts';
+import type { CausalProblem, FourAnswers, TriState } from '@causal-layers/clis-contracts';
 
 export const Y: TriState = 'yes';
 export const N: TriState = 'no';

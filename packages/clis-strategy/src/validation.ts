@@ -1,4 +1,4 @@
-import { ClisContractError } from '@clis/clis-contracts';
+import { ClisContractError } from '@causal-layers/clis-contracts';
 import type {
   CandidatePath,
   ClisContractErrorCode,
@@ -6,7 +6,7 @@ import type {
   ExecutePathOptions,
   PathStep,
   StrategyBoundary,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /**
  * 校验工具的唯一实现。

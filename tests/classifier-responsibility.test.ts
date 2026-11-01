@@ -15,13 +15,13 @@ const SRC_ROOT = join(REPO_ROOT, 'packages', 'clis-classifier', 'src');
 
 /** SPEC §1/§6-12 明确禁止依赖的三个同名插件实现包。 */
 const FORBIDDEN_PACKAGES = [
-  '@clis/clis-strategy',
-  '@clis/clis-feedback',
-  '@clis/clis-orchestrator',
+  '@causal-layers/clis-strategy',
+  '@causal-layers/clis-feedback',
+  '@causal-layers/clis-orchestrator',
 ];
 
 /** SPEC §1：只允许依赖共享契约包。 */
-const ALLOWED_CLIS_PACKAGE = '@clis/clis-contracts';
+const ALLOWED_CLIS_PACKAGE = '@causal-layers/clis-contracts';
 
 const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 
@@ -72,7 +72,7 @@ describe('SPEC §6-12 职责边界静态检查', () => {
     expect(sourceFiles.length).toBeGreaterThan(0);
   });
 
-  it('src 不含对 @clis/clis-strategy / @clis/clis-feedback / @clis/clis-orchestrator 的 import', () => {
+  it('src 不含对 @causal-layers/clis-strategy / @causal-layers/clis-feedback / @causal-layers/clis-orchestrator 的 import', () => {
     const violations: string[] = [];
     for (const file of sourceFiles) {
       const source = stripComments(readFileSync(file, 'utf8'));
@@ -86,12 +86,12 @@ describe('SPEC §6-12 职责边界静态检查', () => {
     expect(violations).toStrictEqual([]);
   });
 
-  it('src 依赖的 @clis/* 包只有共享契约包（SPEC §1 只依赖 @clis/clis-contracts）', () => {
+  it('src 依赖的 @causal-layers/* 包只有共享契约包（SPEC §1 只依赖 @causal-layers/clis-contracts）', () => {
     const violations: string[] = [];
     for (const file of sourceFiles) {
       const source = stripComments(readFileSync(file, 'utf8'));
       for (const specifier of importSpecifiers(source)) {
-        if (!specifier.startsWith('@clis/')) continue;
+        if (!specifier.startsWith('@causal-layers/')) continue;
         const allowed =
           specifier === ALLOWED_CLIS_PACKAGE || specifier.startsWith(`${ALLOWED_CLIS_PACKAGE}/`);
         if (!allowed) violations.push(`${relative(REPO_ROOT, file)} → ${specifier}`);
@@ -115,25 +115,25 @@ describe('SPEC §6-12 职责边界静态检查', () => {
   });
 
   it('静态检查器自身的自检：能识别违规样例、且不误伤合法写法', () => {
-    const forbiddenSample = "import { plan } from '@clis/clis-strategy';\n";
+    const forbiddenSample = "import { plan } from '@causal-layers/clis-strategy';\n";
     expect(
       importSpecifiers(stripComments(forbiddenSample)).some((specifier) =>
         FORBIDDEN_PACKAGES.includes(specifier),
       ),
     ).toBe(true);
 
-    const dynamicSample = "const mod = await import('@clis/clis-orchestrator');\n";
+    const dynamicSample = "const mod = await import('@causal-layers/clis-orchestrator');\n";
     expect(
       importSpecifiers(stripComments(dynamicSample)).some((specifier) =>
         FORBIDDEN_PACKAGES.includes(specifier),
       ),
     ).toBe(true);
 
-    const commentOnly = "// 这里不 import '@clis/clis-feedback'\n";
+    const commentOnly = "// 这里不 import '@causal-layers/clis-feedback'\n";
     expect(importSpecifiers(stripComments(commentOnly))).toStrictEqual([]);
 
-    const allowedSample = "import { CAUSAL_TYPES } from '@clis/clis-contracts';\n";
-    expect(importSpecifiers(stripComments(allowedSample))).toStrictEqual(['@clis/clis-contracts']);
+    const allowedSample = "import { CAUSAL_TYPES } from '@causal-layers/clis-contracts';\n";
+    expect(importSpecifiers(stripComments(allowedSample))).toStrictEqual(['@causal-layers/clis-contracts']);
 
     const onePattern = /confidence\s*[:=]=?\s*1(?:\.0+)?(?![0-9.])/;
     expect(onePattern.test('  confidence: 1,')).toBe(true);

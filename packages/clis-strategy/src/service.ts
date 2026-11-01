@@ -1,7 +1,7 @@
 import { Service } from '@deepseek-ai/cordis';
 import type { Context } from '@deepseek-ai/cordis';
 
-import { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from '@causal-layers/clis-contracts';
 import type {
   CandidatePath,
   CausalClassification,
@@ -12,7 +12,7 @@ import type {
   StrategyBoundary,
   StrategyMatchOptions,
   StrategyService,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { executePath } from './execution';
 import { matchPaths } from './paths';

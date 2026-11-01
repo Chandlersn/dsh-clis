@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
-import type { HealthFinding, HealthReport, CausalProblem, FourAnswers } from '@clis/clis-contracts';
+import type { HealthFinding, HealthReport, CausalProblem, FourAnswers } from '@causal-layers/clis-contracts';
 
 /**
  * 互查调度：收集所有插件的健康探针结论，并**用因果判断分析其结构**。

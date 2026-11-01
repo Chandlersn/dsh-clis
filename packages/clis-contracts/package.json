@@ -1,18 +1,40 @@
 {
-  "name": "@clis/clis-contracts",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "CLIS 共享契约：因果类型词表、四问定义、判定输出结构、抽象服务接口。四个插件只依赖它，不互相 import 实现。",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.5"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": {
-      "optional": true
-    }
-  }
+    "name":  "@causal-layers/clis-contracts",
+    "version":  "0.1.0",
+    "type":  "module",
+    "description":  "CLIS 共享契约：因果类型词表、四问定义、判定输出结构、抽象服务接口。四个插件只依赖它，不互相 import 实现。",
+    "license":  "MIT",
+    "sideEffects":  false,
+    "files":  [
+                  "dist"
+              ],
+    "main":  "./dist/index.js",
+    "types":  "./dist/index.d.ts",
+    "exports":  {
+                    ".":  {
+                              "types":  "./dist/index.d.ts",
+                              "import":  "./dist/index.js"
+                          }
+                },
+    "engines":  {
+                    "node":  "\u003e=22"
+                },
+    "scripts":  {
+                    "build":  "tsc -p tsconfig.build.json \u0026\u0026 node ../../scripts/fix-esm-specifiers.mjs ./dist",
+                    "typecheck":  "tsc -p tsconfig.json --noEmit",
+                    "clean":  "node -e \"require(\u0027node:fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})\"",
+                    "prepublishOnly":  "pnpm run clean \u0026\u0026 pnpm run build"
+                },
+    "peerDependencies":  {
+                             "@deepseek-ai/cordis":  "4.0.5"
+                         },
+    "peerDependenciesMeta":  {
+                                 "@deepseek-ai/cordis":  {
+                                                             "optional":  true
+                                                         }
+                             },
+    "devDependencies":  {
+                            "@deepseek-ai/cordis":  "4.0.5",
+                            "typescript":  "5.9.3"
+                        }
 }

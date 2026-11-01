@@ -1,16 +1,16 @@
 import { Context } from '@deepseek-ai/cordis';
 
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 import {
   CAUSAL_CLASSIFIER_SERVICE,
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
   ClisContractError,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ActionExecutor,
   ActionInvocation,
@@ -18,7 +18,7 @@ import type {
   CausalProblem,
   FourAnswers,
   TriState,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /** 四个插件的装载顺序（也是文档里承诺的协作顺序）。 */
 export const PLUGINS = [

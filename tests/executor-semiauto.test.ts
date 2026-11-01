@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { ActionInvocation } from '@clis/clis-contracts';
+import type { ActionInvocation } from '@causal-layers/clis-contracts';
 import { ACTION_SIDE_EFFECTS, SemiAutoExecutor, sideEffectOf } from '../packages/clis-plugin/src/executor';
 
 /** 造一个动作调用。 */

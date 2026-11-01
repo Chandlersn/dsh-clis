@@ -31,13 +31,13 @@
 import { Context } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import type { CausalProblem, ExecutionResult } from '@clis/clis-contracts';
-import { CAUSAL_ORCHESTRATOR_SERVICE } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
-import { matchPaths, executePath } from '@clis/clis-strategy';
+import type { CausalProblem, ExecutionResult } from '@causal-layers/clis-contracts';
+import { CAUSAL_ORCHESTRATOR_SERVICE } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
+import { matchPaths, executePath } from '@causal-layers/clis-strategy';
 
 import { SemiAutoExecutor } from '../packages/clis-plugin/src/executor';
 

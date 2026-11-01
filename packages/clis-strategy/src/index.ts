@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis';
 
-import { CAUSAL_CLASSIFIER_SERVICE } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE } from '@causal-layers/clis-contracts';
 
 import { StrategyServiceImpl } from './service';
 
@@ -8,7 +8,7 @@ import { StrategyServiceImpl } from './service';
  * clis-strategy —— 只做策略匹配、候选路径生成、排序与执行。
  *
  * 不重新判断因果类型、不自行决定回退、不执行 boundary.forbidden_actions 中的动作；
- * 只依赖 @clis/clis-contracts，不 import 任何其它 CLIS 插件的实现文件。
+ * 只依赖 @causal-layers/clis-contracts，不 import 任何其它 CLIS 插件的实现文件。
  */
 export const name = 'clis-strategy';
 

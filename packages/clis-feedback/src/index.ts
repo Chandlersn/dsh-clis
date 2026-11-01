@@ -6,7 +6,7 @@ import { FeedbackServiceImpl } from './service';
  * clis-feedback —— 只做反馈信号检测、类型误判识别、回退建议输出。
  *
  * 不重新判断因果类型（不调用 classifier）、不自动执行回退、不修改系统状态；
- * 只依赖 @clis/clis-contracts，不 import 任何其它 CLIS 插件的实现文件。
+ * 只依赖 @causal-layers/clis-contracts，不 import 任何其它 CLIS 插件的实现文件。
  */
 export const name = 'clis-feedback';
 

@@ -7,7 +7,7 @@ import type {
   FeedbackBoundary,
   FeedbackRequest,
   FeedbackSignalType,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /** 造一条执行信号。 */
 export function sig(

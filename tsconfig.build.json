@@ -19,11 +19,11 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["node"],
     "paths": {
-      "@clis/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
-      "@clis/clis-classifier": ["./packages/clis-classifier/src/index.ts"],
-      "@clis/clis-strategy": ["./packages/clis-strategy/src/index.ts"],
-      "@clis/clis-feedback": ["./packages/clis-feedback/src/index.ts"],
-      "@clis/clis-orchestrator": ["./packages/clis-orchestrator/src/index.ts"]
+      "@causal-layers/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
+      "@causal-layers/clis-classifier": ["./packages/clis-classifier/src/index.ts"],
+      "@causal-layers/clis-strategy": ["./packages/clis-strategy/src/index.ts"],
+      "@causal-layers/clis-feedback": ["./packages/clis-feedback/src/index.ts"],
+      "@causal-layers/clis-orchestrator": ["./packages/clis-orchestrator/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*.ts"]

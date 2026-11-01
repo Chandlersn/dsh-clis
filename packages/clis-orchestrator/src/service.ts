@@ -6,7 +6,7 @@ import {
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ActionExecutor,
   CandidatePath,
@@ -23,7 +23,7 @@ import type {
   CausalProblem,
   ExecutionResult,
   FeedbackSignal,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { decide, initialState, ROLLBACK_LIMIT_DEFAULT } from './decide';
 

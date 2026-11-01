@@ -12,8 +12,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { HealthReport } from '@clis/clis-contracts';
-import { deriveStatus } from '@clis/clis-contracts';
+import type { HealthReport } from '@causal-layers/clis-contracts';
+import { deriveStatus } from '@causal-layers/clis-contracts';
 import { HealthSupervisor, groupFindings } from '../packages/clis-plugin/src/health-supervisor';
 
 /** 造一个探针报告。 */

@@ -6,7 +6,7 @@ import { ClassifierService } from './service';
  * clis-classifier —— 只做因果类型判断。
  *
  * 不生成策略、不执行动作、不评价策略好坏、不决定回退；
- * 只依赖 @clis/clis-contracts 的类型与接口，不 import 任何其它 CLIS 插件实现。
+ * 只依赖 @causal-layers/clis-contracts 的类型与接口，不 import 任何其它 CLIS 插件实现。
  */
 export const name = 'clis-classifier';
 

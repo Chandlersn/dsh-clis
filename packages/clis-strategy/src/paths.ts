@@ -8,7 +8,7 @@ import {
   blockedReason,
   isCausalType,
   scorePath,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   BlockedAction,
   CandidatePath,
@@ -21,7 +21,7 @@ import type {
   StrategyBoundary,
   StrategyFamily,
   StrategyMatchOptions,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { STRATEGY_LIBRARY, STRATEGY_LIBRARY_VERSION, libraryVariant } from './library';
 import type { LibraryVariant } from './library';

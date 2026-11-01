@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
 import type {
   CausalClassification,
   CausalType,
-} from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
+} from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 
 import {
   expectInvariants,

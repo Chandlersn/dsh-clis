@@ -9,7 +9,7 @@ import type {
   JudgmentBasis,
   StrategyBoundary,
   SubModuleClassification,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /**
  * 手搓的合法分类结论：只用来构造 strategy 的输入。

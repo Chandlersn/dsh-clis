@@ -1,5 +1,5 @@
 {
-  "name": "@clis/clis-orchestrator",
+  "name": "@causal-layers/clis-orchestrator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@clis/clis-contracts": "workspace:*",
+    "@causal-layers/clis-contracts": "workspace:*",
     "@deepseek-ai/cordis": "4.0.5"
   }
 }

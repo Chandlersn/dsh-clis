@@ -4,10 +4,10 @@
  * 装载顺序按要求：先 clis-classifier，再 clis-strategy（strategy 的 inject 依赖前者）。
  */
 import { Context } from '@deepseek-ai/cordis';
-import { CAUSAL_STRATEGY_SERVICE, scorePath } from '@clis/clis-contracts';
-import type { CausalClassification, CausalProblem, CandidatePath } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as strategyPlugin from '@clis/clis-strategy';
+import { CAUSAL_STRATEGY_SERVICE, scorePath } from '@causal-layers/clis-contracts';
+import type { CausalClassification, CausalProblem, CandidatePath } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 import { describe, expect, it } from 'vitest';
 
 import { makeProblem } from './helpers';

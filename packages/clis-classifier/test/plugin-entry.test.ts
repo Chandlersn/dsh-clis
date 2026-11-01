@@ -1,11 +1,11 @@
 import { Context } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import { CAUSAL_CLASSIFIER_SERVICE } from '@clis/clis-contracts';
-import type { CausalClassifierService } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE } from '@causal-layers/clis-contracts';
+import type { CausalClassifierService } from '@causal-layers/clis-contracts';
 
-import * as classifierPlugin from '@clis/clis-classifier';
-import { classifyProblem } from '@clis/clis-classifier';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import { classifyProblem } from '@causal-layers/clis-classifier';
 
 import { N, Y, problem } from './fixtures';
 

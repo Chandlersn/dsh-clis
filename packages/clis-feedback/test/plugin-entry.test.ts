@@ -1,11 +1,11 @@
 import { Context } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import { CAUSAL_FEEDBACK_SERVICE, ClisContractError } from '@clis/clis-contracts';
-import type { FeedbackRequest } from '@clis/clis-contracts';
+import { CAUSAL_FEEDBACK_SERVICE, ClisContractError } from '@causal-layers/clis-contracts';
+import type { FeedbackRequest } from '@causal-layers/clis-contracts';
 
-import * as feedbackPlugin from '@clis/clis-feedback';
-import { detectSignal } from '@clis/clis-feedback';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import { detectSignal } from '@causal-layers/clis-feedback';
 
 import { boundary, emptyHistory, request, result } from './fixtures';
 

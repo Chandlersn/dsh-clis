@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { STRATEGY_FAMILIES } from '@clis/clis-contracts';
+import { STRATEGY_FAMILIES } from '@causal-layers/clis-contracts';
 
-import { matchPaths } from '@clis/clis-strategy';
+import { matchPaths } from '@causal-layers/clis-strategy';
 
 import { allStepActions, boundary, makeClassification, subModule } from './fixtures';
 

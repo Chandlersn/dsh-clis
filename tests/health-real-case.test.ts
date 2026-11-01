@@ -11,7 +11,7 @@
 import { Context } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import * as classifierPlugin from '@clis/clis-classifier';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 import { HealthSupervisor } from '../packages/clis-plugin/src/health-supervisor';
 
 /** memory_check 在 2026-10-26 报出的真实 5 条警告。 */

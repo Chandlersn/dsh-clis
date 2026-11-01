@@ -1,12 +1,12 @@
 /**
  * clis-strategy 独立黑盒验收套件的共享工具。
  *
- * 纪律：一切期望值只来自 `docs/SPEC-strategy.md`（冻结规格）与 `@clis/clis-contracts`
+ * 纪律：一切期望值只来自 `docs/SPEC-strategy.md`（冻结规格）与 `@causal-layers/clis-contracts`
  * （含排序公式的唯一实现 `scorePath` / 边界唯一实现 `blockedReason`），
  * 绝不从 `packages/clis-strategy/src/**` 反推。
  * （唯一例外：`strategy-static.test.ts` 依 SPEC §7-11 读源码文本做静态断言。）
  *
- * 本文件刻意**不** import `@clis/clis-strategy`：预言机与实现无关，且模块解析失败时
+ * 本文件刻意**不** import `@causal-layers/clis-strategy`：预言机与实现无关，且模块解析失败时
  * 工具函数仍可正常工作，故障面被限制在测试文件内。
  */
 import { expect } from 'vitest';
@@ -19,7 +19,7 @@ import {
   PROBE_FAMILY,
   blockedReason,
   scorePath,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ActionExecutor,
   ActionInvocation,
@@ -36,8 +36,8 @@ import type {
   PathVariantId,
   StrategyBoundary,
   StrategyFamily,
-} from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
+} from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 
 import { makeProblem } from './helpers';
 

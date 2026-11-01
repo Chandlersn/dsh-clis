@@ -8,13 +8,13 @@ import {
   CAUSAL_STRATEGY_SERVICE,
   ROLLBACK_LIMIT,
   TYPE_LOCK_ROUNDS,
-} from '@clis/clis-contracts';
-import type { ActionExecutor } from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
+import type { ActionExecutor } from '@causal-layers/clis-contracts';
 
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 /**
  * 第四插件任务书的逐条验收（Lead 自查，对照用户给出的任务书原文）。
@@ -125,9 +125,9 @@ describe('任务书 5：依赖注入边界', () => {
       CAUSAL_STRATEGY_SERVICE,
       CAUSAL_FEEDBACK_SERVICE,
     ]);
-    // 只依赖契约包：inject 里不应出现任何 @clis/ 实现包名
+    // 只依赖契约包：inject 里不应出现任何 @causal-layers/ 实现包名
     for (const name of orchestratorPlugin.inject) {
-      expect(name.startsWith('@clis/')).toBe(false);
+      expect(name.startsWith('@causal-layers/')).toBe(false);
     }
   });
 

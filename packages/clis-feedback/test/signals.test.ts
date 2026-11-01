@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectSignal } from '@clis/clis-feedback';
+import { detectSignal } from '@causal-layers/clis-feedback';
 
 import {
   boundary,

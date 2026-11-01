@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { decide, initialState } from '@clis/clis-orchestrator';
+import { decide, initialState } from '@causal-layers/clis-orchestrator';
 
 import { ROLLBACK_TO_CYCLIC, round, state } from './fixtures';
 

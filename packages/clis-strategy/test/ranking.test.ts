@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { PATH_VARIANTS, scorePath } from '@clis/clis-contracts';
-import type { CausalType } from '@clis/clis-contracts';
+import { PATH_VARIANTS, scorePath } from '@causal-layers/clis-contracts';
+import type { CausalType } from '@causal-layers/clis-contracts';
 
-import { matchPaths } from '@clis/clis-strategy';
+import { matchPaths } from '@causal-layers/clis-strategy';
 
 import { allStepActions, boundary, makeClassification } from './fixtures';
 

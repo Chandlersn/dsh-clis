@@ -8,7 +8,7 @@ import {
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ActionExecutor,
   CausalClassification,
@@ -18,7 +18,7 @@ import type {
   FeedbackSignal,
   OrchestratorDecision,
   StrategyBoundary,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /** 一次验收运行的完整记录（落盘单位）。 */
 export interface AcceptanceRecord {

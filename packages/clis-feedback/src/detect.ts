@@ -1,4 +1,4 @@
-import { ClisContractError, FEEDBACK_SIGNAL_TYPES, isCausalType } from '@clis/clis-contracts';
+import { ClisContractError, FEEDBACK_SIGNAL_TYPES, isCausalType } from '@causal-layers/clis-contracts';
 import type {
   CausalClassificationRef,
   ClisContractErrorCode,
@@ -12,7 +12,7 @@ import type {
   KnownCausalType,
   RollbackKind,
   SuggestedRollback,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /**
  * 反馈判据的唯一实现。

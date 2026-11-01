@@ -123,6 +123,16 @@ const ADOPTION_WINDOW_MS = 30 * 60_000;
  * 现在按**事件顺序**重放：一次 adopted 只有在同一 agent 此前 30 分钟内有
  * hinted 才进分子；没有前提的记为 `spontaneous`，单列但不进分子。
  *
+ * ## 一次提示最多兑现一次采纳（2026-10-30 修）
+ *
+ * 上一版只记"该 agent 最近一次提示的时间"，计数后**不清除**。于是一次提示
+ * 会给它之后所有调用背书 —— 实测跑出 adopted=20 / hinted=9、采用率 2.22
+ * 这种不可能的数值（分子大于分母）。
+ *
+ * 现在采纳成功后**消费掉**那次提示（从 `lastHintAt` 删除）：同一 agent 再来
+ * 调用而没有新提示时，记为 `spontaneous`。这让"每次采纳都能追溯到某次具体
+ * 提示"，采用率结构上不可能超过 1。
+ *
  * 坏行跳过（照 memory-manager readUsage 的先例）；数量上限 10_000 行——
  * 正常使用远达不到，只为防病态文件拖垮读取。
  *
@@ -134,7 +144,7 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
   let hinted = 0;
   let adopted = 0;
   let spontaneous = 0;
-  /** agent → 该 agent 最近一次 hinted 的时间戳（按事件顺序滚动）。 */
+  /** agent → 该 agent 尚未被兑现的最近一次 hinted 时间戳。 */
   const lastHintAt = new Map<string, number>();
   try {
     const raw = await readFile(path, 'utf8');
@@ -159,6 +169,8 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
           const hintAt = lastHintAt.get(agent);
           if (hintAt !== undefined && t >= hintAt && t - hintAt <= ADOPTION_WINDOW_MS) {
             adopted += 1;
+            // 兑现：一次提示只能为一次采纳背书，否则分子会超过分母。
+            lastHintAt.delete(agent);
           } else {
             spontaneous += 1;
           }
@@ -173,7 +185,9 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
   return {
     hinted,
     adopted,
-    adoptionRate: hinted === 0 ? null : adopted / hinted,
+    // 结构上 adopted ≤ hinted（每次采纳消费一次提示），但仍夹一次以防
+    // 将来改动破坏这个不变量 —— 指标宁可保守，不可报出不可能的数值。
+    adoptionRate: hinted === 0 ? null : Math.min(adopted / hinted, 1),
     spontaneous,
     windowDays,
   };

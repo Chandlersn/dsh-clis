@@ -130,7 +130,7 @@ export function apply(ctx: Context): void {
   }
 }
 
-export { classifyProblem } from '@clis/clis-classifier';
-export { matchPaths, executePath, STRATEGY_LIBRARY, STRATEGY_LIBRARY_VERSION } from '@clis/clis-strategy';
-export { detectSignal, FEEDBACK_RULES_VERSION } from '@clis/clis-feedback';
-export { decide, initialState, ROLLBACK_LIMIT_DEFAULT, TYPE_LOCK_ROUNDS_DEFAULT } from '@clis/clis-orchestrator';
+export { classifyProblem } from '@causal-layers/clis-classifier';
+export { matchPaths, executePath, STRATEGY_LIBRARY, STRATEGY_LIBRARY_VERSION } from '@causal-layers/clis-strategy';
+export { detectSignal, FEEDBACK_RULES_VERSION } from '@causal-layers/clis-feedback';
+export { decide, initialState, ROLLBACK_LIMIT_DEFAULT, TYPE_LOCK_ROUNDS_DEFAULT } from '@causal-layers/clis-orchestrator';

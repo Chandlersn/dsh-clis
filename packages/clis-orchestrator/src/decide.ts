@@ -3,7 +3,7 @@ import {
   ROLLBACK_LIMIT,
   TYPE_LOCK_ROUNDS,
   initialState,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ClisContractErrorCode,
   ClisContractErrorDetail,
@@ -13,7 +13,7 @@ import type {
   OrchestratorRound,
   OrchestratorState,
   RoundTrace,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /**
  * 编排决策的唯一实现。

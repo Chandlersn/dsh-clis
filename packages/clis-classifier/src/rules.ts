@@ -9,7 +9,7 @@ import {
   MAX_DEPTH_LIMIT,
   isTriState,
   normalizeConfidence,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   CandidateHypothesis,
   CausalClassification,
@@ -26,7 +26,7 @@ import type {
   QuestionSpec,
   SubModuleClassification,
   TriState,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /**
  * 判据规则表（SPEC §4）。规则 id 与描述在此固化，judgment_basis 里每条都会出现。

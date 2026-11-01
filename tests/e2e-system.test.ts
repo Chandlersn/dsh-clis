@@ -6,8 +6,8 @@ import {
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
   initialState,
-} from '@clis/clis-contracts';
-import type { OrchestratorState } from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
+import type { OrchestratorState } from '@causal-layers/clis-contracts';
 
 import { bootAll, problem, recordingExecutor, SERVICE_NAMES } from './e2e-harness';
 
@@ -33,7 +33,7 @@ describe('四插件协同装载', () => {
 
   it('只装 orchestrator 时它不装载（inject 依赖未满足）', async () => {
     const { Context } = await import('@deepseek-ai/cordis');
-    const orchestrator = await import('@clis/clis-orchestrator');
+    const orchestrator = await import('@causal-layers/clis-orchestrator');
 
     const ctx = new Context();
     void ctx.plugin(orchestrator);
@@ -42,7 +42,7 @@ describe('四插件协同装载', () => {
 
   it('strategy 依赖 classifier：只装 strategy 时不可用', async () => {
     const { Context } = await import('@deepseek-ai/cordis');
-    const strategy = await import('@clis/clis-strategy');
+    const strategy = await import('@causal-layers/clis-strategy');
 
     const ctx = new Context();
     void ctx.plugin(strategy);
@@ -51,7 +51,7 @@ describe('四插件协同装载', () => {
 
   it('feedback 无依赖：单独装载即可用', async () => {
     const { Context } = await import('@deepseek-ai/cordis');
-    const feedback = await import('@clis/clis-feedback');
+    const feedback = await import('@causal-layers/clis-feedback');
 
     const ctx = new Context();
     await ctx.plugin(feedback);

@@ -146,6 +146,79 @@ describe('recordMetric / summarizeMetrics', () => {
       // 旧口径会报 3/2 = 1.5（或按独立计数虚高）；新口径分子只认有前提的
       expect(s.adoptionRate).toBe(1);
     });
+
+    // —— 2026-10-30 真机：采用率报出 2.22，分子大于分母 ——
+    describe('一次提示最多兑现一次采纳（采用率结构上 ≤ 1）', () => {
+      it('一次提示之后的连续多次调用 → 只有第一次算采纳', async () => {
+        // 真机形态：一个 agent 收到 1 次提示后，连续调了 3 次 clis_run
+        await writeEvents([
+          { t: iso(-600_000), kind: 'hinted', agent: 'a', tool: 't' },
+          { t: iso(-500_000), kind: 'adopted', agent: 'a', via: 'clis_run' },
+          { t: iso(-400_000), kind: 'adopted', agent: 'a', via: 'clis_run' },
+          { t: iso(-300_000), kind: 'adopted', agent: 'a', via: 'clis_run' },
+        ]);
+        const s = await summarizeMetrics(sandbox, 30);
+        expect(s.hinted).toBe(1);
+        expect(s.adopted).toBe(1);
+        expect(s.spontaneous).toBe(2);
+        expect(s.adoptionRate).toBe(1);
+      });
+
+      it('真机事故复现：9 hinted / 20 adopted → 采用率不再报 2.22', async () => {
+        // 构造"一次提示被多次兑现"的形态：9 次提示，每次后跟 2 次调用
+        const events: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < 9; i += 1) {
+          const base = -900_000 + i * 60_000;
+          events.push({ t: iso(base), kind: 'hinted', agent: 'a', tool: 't' });
+          // 旧实现会把它们全算成采纳（提示记账不清除）
+          events.push({ t: iso(base + 1_000), kind: 'adopted', agent: 'a', via: 'clis_run' });
+          events.push({ t: iso(base + 2_000), kind: 'adopted', agent: 'a', via: 'clis_run' });
+        }
+        await writeEvents(events);
+        const s = await summarizeMetrics(sandbox, 30);
+        expect(s.hinted).toBe(9);
+        // 9 次提示最多兑现 9 次采纳；多出来的 9 次是自主调用
+        expect(s.adopted).toBe(9);
+        expect(s.spontaneous).toBe(9);
+        expect(s.adoptionRate).toBe(1);
+        // 关键不变量：分子永远不超过分母
+        expect(s.adopted).toBeLessThanOrEqual(s.hinted);
+      });
+
+      it('不变量：任何事件序列下 adopted ≤ hinted 且 rate ≤ 1', async () => {
+        // 伪随机序列（固定种子，避免 flaky）
+        const events: Array<Record<string, unknown>> = [];
+        let seed = 42;
+        const rand = () => {
+          seed = (seed * 1103515245 + 12345) % 2 ** 31;
+          return seed / 2 ** 31;
+        };
+        for (let i = 0; i < 200; i += 1) {
+          const t = iso(-1_000_000 + i * 1_000);
+          if (rand() < 0.4) events.push({ t, kind: 'hinted', agent: 'a', tool: 't' });
+          else events.push({ t, kind: 'adopted', agent: 'a', via: 'clis_run' });
+        }
+        await writeEvents(events);
+        const s = await summarizeMetrics(sandbox, 30);
+        expect(s.adopted).toBeLessThanOrEqual(s.hinted);
+        expect(s.adoptionRate === null || s.adoptionRate <= 1).toBe(true);
+      });
+
+      it('跨 agent 仍独立：A 的提示不能为 B 的调用背书', async () => {
+        await writeEvents([
+          { t: iso(-600_000), kind: 'hinted', agent: 'A', tool: 't' },
+          { t: iso(-500_000), kind: 'adopted', agent: 'A', via: 'clis_run' },
+          { t: iso(-400_000), kind: 'adopted', agent: 'A', via: 'clis_run' },
+          { t: iso(-300_000), kind: 'hinted', agent: 'B', tool: 't' },
+          { t: iso(-200_000), kind: 'adopted', agent: 'B', via: 'clis_run' },
+        ]);
+        const s = await summarizeMetrics(sandbox, 30);
+        expect(s.hinted).toBe(2);
+        expect(s.adopted).toBe(2);
+        expect(s.spontaneous).toBe(1);
+        expect(s.adoptionRate).toBe(1);
+      });
+    });
   });
 
   it('窗口外的记录不计入', async () => {

@@ -43,7 +43,7 @@ import type {
   RoundTrace,
   StrategyBoundary,
   SuggestedRollback,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import {
   CAUSAL_ORCHESTRATOR_SERVICE,
   ClisContractError,
@@ -51,16 +51,16 @@ import {
   RUN_OUTCOMES,
   TYPE_LOCK_ROUNDS,
   initialState,
-} from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
+} from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 import {
   ROLLBACK_LIMIT_DEFAULT,
   TYPE_LOCK_ROUNDS_DEFAULT,
   decide,
-} from '@clis/clis-orchestrator';
+} from '@causal-layers/clis-orchestrator';
 
 // ─────────────────────────────────────────────────────────────
 // 0. 基础设施（构造数据 + 调用夹具）
@@ -1163,7 +1163,7 @@ describe('SPEC §6.6 职责边界静态检查', () => {
       .map((entry) => ({ path: join(SRC_DIR, entry), text: readFileSync(join(SRC_DIR, entry), 'utf8') }));
   }
 
-  it('src/** 不 import 其它 CLIS 插件的实现（只允许 @clis/clis-contracts）', () => {
+  it('src/** 不 import 其它 CLIS 插件的实现（只允许 @causal-layers/clis-contracts）', () => {
     // SPEC §1 硬约束 + §6.6
     const offenders = sourceFiles()
       .filter((file) => FORBIDDEN_IMPORT.test(file.text))

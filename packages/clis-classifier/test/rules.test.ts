@@ -5,15 +5,15 @@ import {
   ClisContractError,
   KNOWN_CAUSAL_TYPES,
   TRI_STATES,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   CausalClassification,
   CausalProblem,
   ClassifyOptions,
   FourAnswers,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
-import { classifyProblem } from '@clis/clis-classifier';
+import { classifyProblem } from '@causal-layers/clis-classifier';
 
 import { N, U, Y, answers, problem } from './fixtures';
 

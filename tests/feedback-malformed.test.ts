@@ -5,13 +5,13 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ClisContractError } from '@clis/clis-contracts';
+import { ClisContractError } from '@causal-layers/clis-contracts';
 import type {
   ClisContractErrorCode,
   DetectOptions,
   FeedbackRequest,
-} from '@clis/clis-contracts';
-import * as feedbackPlugin from '@clis/clis-feedback';
+} from '@causal-layers/clis-contracts';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
 
 import { captureContractError } from './helpers';
 import {

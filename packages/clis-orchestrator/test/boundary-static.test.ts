@@ -7,9 +7,9 @@ import {
   CAUSAL_CLASSIFIER_SERVICE,
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
 
 /**
  * 职责边界的静态检查（SPEC-orchestrator §6-6）。
@@ -50,9 +50,9 @@ describe('inject 声明', () => {
 describe('不 import 其它插件实现', () => {
   it('src 中不含对三个插件实现包的 import（静态与动态）', () => {
     const forbidden = [
-      '@clis/clis-classifier',
-      '@clis/clis-strategy',
-      '@clis/clis-feedback',
+      '@causal-layers/clis-classifier',
+      '@causal-layers/clis-strategy',
+      '@causal-layers/clis-feedback',
     ];
 
     for (const file of sourceFiles()) {
@@ -150,8 +150,8 @@ describe('不写反馈检测规则、不绕过 feedback 决定回退', () => {
 
 describe('检查器自检（防止空转变绿）', () => {
   it('能识别违规 import', () => {
-    const sample = "import { x } from '@clis/clis-feedback';";
-    expect(sample.includes("from '@clis/clis-feedback'")).toBe(true);
+    const sample = "import { x } from '@causal-layers/clis-feedback';";
+    expect(sample.includes("from '@causal-layers/clis-feedback'")).toBe(true);
   });
 
   it('stripComments 能剥离注释，避免注释造成假阳性', () => {

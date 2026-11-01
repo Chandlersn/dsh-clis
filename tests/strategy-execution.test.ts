@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { ActionResultStatus, CandidatePath, CausalClassification } from '@clis/clis-contracts';
-import * as strategyPlugin from '@clis/clis-strategy';
+import type { ActionResultStatus, CandidatePath, CausalClassification } from '@causal-layers/clis-contracts';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 import {
   FORBIDDEN_RESULT_KEY,

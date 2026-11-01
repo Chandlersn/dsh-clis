@@ -4,7 +4,7 @@ import {
   CAUSAL_CLASSIFIER_SERVICE,
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { OrchestratorServiceImpl } from './service';
 

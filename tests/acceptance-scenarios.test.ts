@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs';
 import { Context } from '@deepseek-ai/cordis';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { initialState } from '@clis/clis-contracts';
-import type { ActionExecutor, CausalProblem, StrategyBoundary } from '@clis/clis-contracts';
+import { initialState } from '@causal-layers/clis-contracts';
+import type { ActionExecutor, CausalProblem, StrategyBoundary } from '@causal-layers/clis-contracts';
 
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 import { collect, persistRecord, RUNS_PATH, runOne } from './acceptance-runner';
 import type { AcceptanceRecord } from './acceptance-runner';

@@ -6,9 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { PATH_SCORE_WEIGHTS, PATH_VARIANTS, scorePath } from '@clis/clis-contracts';
-import type { PathScoreComponents, PathVariantId } from '@clis/clis-contracts';
-import * as strategyPlugin from '@clis/clis-strategy';
+import { PATH_SCORE_WEIGHTS, PATH_VARIANTS, scorePath } from '@causal-layers/clis-contracts';
+import type { PathScoreComponents, PathVariantId } from '@causal-layers/clis-contracts';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 import {
   ALL_CLASSIFICATIONS,

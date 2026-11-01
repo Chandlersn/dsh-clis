@@ -8,19 +8,19 @@ importers:
 
   .:
     dependencies:
-      '@clis/clis-classifier':
+      '@causal-layers/clis-classifier':
         specifier: workspace:*
         version: link:packages/clis-classifier
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:packages/clis-contracts
-      '@clis/clis-feedback':
+      '@causal-layers/clis-feedback':
         specifier: workspace:*
         version: link:packages/clis-feedback
-      '@clis/clis-orchestrator':
+      '@causal-layers/clis-orchestrator':
         specifier: workspace:*
         version: link:packages/clis-orchestrator
-      '@clis/clis-strategy':
+      '@causal-layers/clis-strategy':
         specifier: workspace:*
         version: link:packages/clis-strategy
     devDependencies:
@@ -42,31 +42,42 @@ importers:
 
   packages/clis-classifier:
     dependencies:
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:../clis-contracts
+    devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
   packages/clis-contracts:
-    dependencies:
+    devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
   packages/clis-feedback:
     dependencies:
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:../clis-contracts
+    devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
   packages/clis-orchestrator:
     dependencies:
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:../clis-contracts
       '@deepseek-ai/cordis':
@@ -75,19 +86,19 @@ importers:
 
   packages/clis-plugin:
     dependencies:
-      '@clis/clis-classifier':
+      '@causal-layers/clis-classifier':
         specifier: workspace:*
         version: link:../clis-classifier
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:../clis-contracts
-      '@clis/clis-feedback':
+      '@causal-layers/clis-feedback':
         specifier: workspace:*
         version: link:../clis-feedback
-      '@clis/clis-orchestrator':
+      '@causal-layers/clis-orchestrator':
         specifier: workspace:*
         version: link:../clis-orchestrator
-      '@clis/clis-strategy':
+      '@causal-layers/clis-strategy':
         specifier: workspace:*
         version: link:../clis-strategy
       '@deepseek-ai/cordis':
@@ -96,12 +107,16 @@ importers:
 
   packages/clis-strategy:
     dependencies:
-      '@clis/clis-contracts':
+      '@causal-layers/clis-contracts':
         specifier: workspace:*
         version: link:../clis-contracts
+    devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.5
         version: 4.0.5
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
 
 packages:
 

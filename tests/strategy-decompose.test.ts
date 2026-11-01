@@ -3,10 +3,10 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { scorePath } from '@clis/clis-contracts';
-import type { ActionResultStatus, CausalClassification } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as strategyPlugin from '@clis/clis-strategy';
+import { scorePath } from '@causal-layers/clis-contracts';
+import type { ActionResultStatus, CausalClassification } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 import { makeProblem } from './helpers';
 import {

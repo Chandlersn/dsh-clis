@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { ClisContractError } from '@clis/clis-contracts';
-import type { CandidatePath } from '@clis/clis-contracts';
+import { ClisContractError } from '@causal-layers/clis-contracts';
+import type { CandidatePath } from '@causal-layers/clis-contracts';
 
-import { executePath, matchPaths } from '@clis/clis-strategy';
+import { executePath, matchPaths } from '@causal-layers/clis-strategy';
 
 import { boundary, makeClassification, makeRecorder, subModule } from './fixtures';
 

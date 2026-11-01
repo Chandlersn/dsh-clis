@@ -4,9 +4,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ClisContractError } from '@clis/clis-contracts';
-import type { ClassifyOptions, ClisContractErrorCode, CausalProblem } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
+import { ClisContractError } from '@causal-layers/clis-contracts';
+import type { ClassifyOptions, ClisContractErrorCode, CausalProblem } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 
 import { answer4, captureContractError, makeProblem } from './helpers';
 

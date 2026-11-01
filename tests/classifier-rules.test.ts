@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { KNOWN_CAUSAL_TYPES } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
+import { KNOWN_CAUSAL_TYPES } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 
 import {
   expectedOutcome,

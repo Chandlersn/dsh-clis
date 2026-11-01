@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import * as classifierPlugin from '@clis/clis-classifier';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 
 import {
   answer4,
@@ -17,7 +17,7 @@ import {
   mainRuleEvidence,
   ruleTrace,
 } from './helpers';
-import type { TriState } from '@clis/clis-contracts';
+import type { TriState } from '@causal-layers/clis-contracts';
 
 const STATES: readonly TriState[] = ['yes', 'no', 'unknown'];
 

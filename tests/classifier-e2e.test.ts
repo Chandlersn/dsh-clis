@@ -3,9 +3,9 @@
  * 通过服务取到与纯函数 `classifyProblem` 完全相同的结论。
  */
 import { Context } from '@deepseek-ai/cordis';
-import { CAUSAL_CLASSIFIER_SERVICE, ClisContractError } from '@clis/clis-contracts';
-import type { CausalClassifierService, CausalProblem } from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
+import { CAUSAL_CLASSIFIER_SERVICE, ClisContractError } from '@causal-layers/clis-contracts';
+import type { CausalClassifierService, CausalProblem } from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 import { describe, expect, it } from 'vitest';
 
 import { makeProblem } from './helpers';

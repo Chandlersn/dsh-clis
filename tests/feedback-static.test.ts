@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import * as feedbackPlugin from '@clis/clis-feedback';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
 
 /**
  * SPEC-feedback §6-4/5：职责边界的静态检查。
@@ -32,9 +32,9 @@ describe('SPEC §6-4：不得重新分类', () => {
   it('src 不含对 clis-classifier 的 import（静态/动态/require）', () => {
     for (const file of sourceFiles()) {
       const text = stripComments(file.text);
-      expect(text.includes("from '@clis/clis-classifier'"), `${file.name}`).toBe(false);
-      expect(text.includes("import('@clis/clis-classifier')"), `${file.name}`).toBe(false);
-      expect(text.includes("require('@clis/clis-classifier')"), `${file.name}`).toBe(false);
+      expect(text.includes("from '@causal-layers/clis-classifier'"), `${file.name}`).toBe(false);
+      expect(text.includes("import('@causal-layers/clis-classifier')"), `${file.name}`).toBe(false);
+      expect(text.includes("require('@causal-layers/clis-classifier')"), `${file.name}`).toBe(false);
     }
   });
 
@@ -61,7 +61,7 @@ describe('SPEC §6-4：不得重新分类', () => {
 
 describe('SPEC §6-5：不得执行回退', () => {
   it('src 不含策略/编排实现包的 import', () => {
-    const forbidden = ['@clis/clis-strategy', '@clis/clis-orchestrator'];
+    const forbidden = ['@causal-layers/clis-strategy', '@causal-layers/clis-orchestrator'];
     for (const file of sourceFiles()) {
       const text = stripComments(file.text);
       for (const pkg of forbidden) {
@@ -105,8 +105,8 @@ describe('SPEC §6-5：不得执行回退', () => {
 
 describe('检查器自检（防止空转变绿）', () => {
   it('能识别违规 import 文本', () => {
-    const sample = "import { x } from '@clis/clis-classifier';";
-    expect(sample.includes("from '@clis/clis-classifier'")).toBe(true);
+    const sample = "import { x } from '@causal-layers/clis-classifier';";
+    expect(sample.includes("from '@causal-layers/clis-classifier'")).toBe(true);
   });
 
   it('stripComments 能剥离注释，避免说明文字造成假阳性', () => {

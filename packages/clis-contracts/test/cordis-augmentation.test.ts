@@ -1,8 +1,8 @@
 import { Context } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import { CAUSAL_CLASSIFIER_SERVICE } from '@clis/clis-contracts';
-import type { CausalClassifierService } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE } from '@causal-layers/clis-contracts';
+import type { CausalClassifierService } from '@causal-layers/clis-contracts';
 
 /**
  * 契约自身的守卫：证明「服务名 → Context 类型增强」这条通路真的成立。

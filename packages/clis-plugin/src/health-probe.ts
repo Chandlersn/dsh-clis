@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis';
-import type { HealthFinding, HealthProbe, HealthReport } from '@clis/clis-contracts';
-import { deriveStatus } from '@clis/clis-contracts';
+import type { HealthFinding, HealthProbe, HealthReport } from '@causal-layers/clis-contracts';
+import { deriveStatus } from '@causal-layers/clis-contracts';
 
 import { historyFilePath, readHealthState } from './history';
 

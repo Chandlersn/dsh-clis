@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONFIDENCE_CEILING } from '@clis/clis-contracts';
+import { CONFIDENCE_CEILING } from '@causal-layers/clis-contracts';
 
-import { classifyProblem } from '@clis/clis-classifier';
+import { classifyProblem } from '@causal-layers/clis-classifier';
 
 import { N, U, Y, problem } from './fixtures';
 

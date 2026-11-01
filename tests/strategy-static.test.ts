@@ -17,10 +17,10 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_ROOT = join(REPO_ROOT, 'packages', 'clis-strategy', 'src');
 
 /** SPEC §1/§7-11 明确禁止依赖的两个同名插件实现包。 */
-const FORBIDDEN_PACKAGES = ['@clis/clis-feedback', '@clis/clis-orchestrator'];
+const FORBIDDEN_PACKAGES = ['@causal-layers/clis-feedback', '@causal-layers/clis-orchestrator'];
 
 /** SPEC §1：只允许依赖共享契约包。 */
-const ALLOWED_CLIS_PACKAGE = '@clis/clis-contracts';
+const ALLOWED_CLIS_PACKAGE = '@causal-layers/clis-contracts';
 
 /**
  * SPEC §7-11「不得出现分类器判据符号」。
@@ -90,7 +90,7 @@ describe('SPEC §7-11 职责边界静态检查', () => {
     expect(sourceFiles.length).toBeGreaterThan(0);
   });
 
-  it('src 不含对 @clis/clis-feedback / @clis/clis-orchestrator 的 import', () => {
+  it('src 不含对 @causal-layers/clis-feedback / @causal-layers/clis-orchestrator 的 import', () => {
     const violations: string[] = [];
     for (const file of sourceFiles) {
       const source = stripComments(readFileSync(file, 'utf8'));
@@ -104,12 +104,12 @@ describe('SPEC §7-11 职责边界静态检查', () => {
     expect(violations).toStrictEqual([]);
   });
 
-  it('src 依赖的 @clis/* 包只有共享契约包（SPEC §1）', () => {
+  it('src 依赖的 @causal-layers/* 包只有共享契约包（SPEC §1）', () => {
     const violations: string[] = [];
     for (const file of sourceFiles) {
       const source = stripComments(readFileSync(file, 'utf8'));
       for (const specifier of importSpecifiers(source)) {
-        if (!specifier.startsWith('@clis/')) continue;
+        if (!specifier.startsWith('@causal-layers/')) continue;
         const allowed =
           specifier === ALLOWED_CLIS_PACKAGE || specifier.startsWith(`${ALLOWED_CLIS_PACKAGE}/`);
         if (!allowed) violations.push(`${relative(REPO_ROOT, file)} → ${specifier}`);
@@ -149,14 +149,14 @@ describe('SPEC §7-11 职责边界静态检查', () => {
   it('扫描器自检：能识别违规样例，且不误伤合法写法与注释', () => {
     // 能识别静态 / 动态 import 与 require
     expect(
-      importSpecifiers(stripComments("import { x } from '@clis/clis-feedback';\n")),
-    ).toContain('@clis/clis-feedback');
+      importSpecifiers(stripComments("import { x } from '@causal-layers/clis-feedback';\n")),
+    ).toContain('@causal-layers/clis-feedback');
     expect(
-      importSpecifiers(stripComments("const m = await import('@clis/clis-orchestrator');\n")),
-    ).toContain('@clis/clis-orchestrator');
+      importSpecifiers(stripComments("const m = await import('@causal-layers/clis-orchestrator');\n")),
+    ).toContain('@causal-layers/clis-orchestrator');
     expect(
-      importSpecifiers(stripComments("const m = require('@clis/clis-feedback');\n")),
-    ).toContain('@clis/clis-feedback');
+      importSpecifiers(stripComments("const m = require('@causal-layers/clis-feedback');\n")),
+    ).toContain('@causal-layers/clis-feedback');
 
     // 判据符号能被识别
     expect(CLASSIFIER_JUDGMENT_SYMBOLS.some((s) => '  const x = FOUR_QUESTIONS[0]'.includes(s))).toBe(true);
@@ -164,8 +164,8 @@ describe('SPEC §7-11 职责边界静态检查', () => {
     // 不误伤：合法契约符号、inject 常量、注释里提到的判据符号
     const legit = stripComments(
       [
-        "import { CAUSAL_CLASSIFIER_SERVICE, scorePath } from '@clis/clis-contracts';",
-        'import type { CausalClassification, CausalType } from "@clis/clis-contracts";',
+        "import { CAUSAL_CLASSIFIER_SERVICE, scorePath } from '@causal-layers/clis-contracts';",
+        'import type { CausalClassification, CausalType } from "@causal-layers/clis-contracts";',
         '// 本插件不判类型：不使用 FOUR_QUESTIONS / q1_simultaneous_mutual_definition',
         'const family = FAMILY_BY_TYPE[classification.causal_type as KnownCausalType];',
       ].join('\n'),
@@ -173,7 +173,7 @@ describe('SPEC §7-11 职责边界静态检查', () => {
     for (const symbol of CLASSIFIER_JUDGMENT_SYMBOLS) {
       expect(legit.includes(symbol)).toBe(false);
     }
-    expect(importSpecifiers(legit)).toStrictEqual(['@clis/clis-contracts', '@clis/clis-contracts']);
+    expect(importSpecifiers(legit)).toStrictEqual(['@causal-layers/clis-contracts', '@causal-layers/clis-contracts']);
 
     // 回退字样能被识别，且注释/文档里的说明不算
     expect(ROLLBACK_TOKENS.test('  suggested_rollback: null,')).toBe(true);

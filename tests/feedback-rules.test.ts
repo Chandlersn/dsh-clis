@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import * as feedbackPlugin from '@clis/clis-feedback';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
 
 import {
   MODE_MARKERS,

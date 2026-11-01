@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import * as classifierPlugin from '@clis/clis-classifier';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
 import { deriveNotices, HealthNotifier } from '../packages/clis-plugin/src/health-notifier';
 import { readSeenState, reconcileFindings, writeSeenState } from '../packages/clis-plugin/src/health-seen';
 import { HealthSupervisor } from '../packages/clis-plugin/src/health-supervisor';

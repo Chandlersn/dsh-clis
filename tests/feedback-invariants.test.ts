@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import * as feedbackPlugin from '@clis/clis-feedback';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
 
 import {
   EXECUTED_KEY_NAMES,
@@ -24,7 +24,7 @@ import {
   succeededResult,
   summaryAt,
 } from './feedback-helpers';
-import type { DetectOptions, FeedbackRequest, FeedbackSignalType } from '@clis/clis-contracts';
+import type { DetectOptions, FeedbackRequest, FeedbackSignalType } from '@causal-layers/clis-contracts';
 
 const detect = feedbackPlugin.detectSignal;
 

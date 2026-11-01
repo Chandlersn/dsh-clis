@@ -7,8 +7,8 @@ import type {
   OrchestratorRound,
   OrchestratorState,
   SuggestedRollback,
-} from '@clis/clis-contracts';
-import { initialState } from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
+import { initialState } from '@causal-layers/clis-contracts';
 
 export function path(pathId = 'p1'): CandidatePath {
   return {

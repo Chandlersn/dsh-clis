@@ -23,17 +23,17 @@ import type {
   CausalClassification,
   CausalProblem,
   ExecutionResult,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import {
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
   EXECUTION_SIGNAL_KINDS,
-} from '@clis/clis-contracts';
-import * as classifierPlugin from '@clis/clis-classifier';
-import * as feedbackPlugin from '@clis/clis-feedback';
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import * as strategyPlugin from '@clis/clis-strategy';
-import { matchPaths, executePath } from '@clis/clis-strategy';
+} from '@causal-layers/clis-contracts';
+import * as classifierPlugin from '@causal-layers/clis-classifier';
+import * as feedbackPlugin from '@causal-layers/clis-feedback';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
+import { matchPaths, executePath } from '@causal-layers/clis-strategy';
 
 import { SemiAutoExecutor } from '../packages/clis-plugin/src/executor';
 

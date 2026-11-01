@@ -1,11 +1,11 @@
 /**
  * clis-feedback 独立黑盒验收套件的共享工具。
  *
- * 纪律：一切期望值只来自 `docs/SPEC-feedback.md`（冻结规格）与 `@clis/clis-contracts`，
+ * 纪律：一切期望值只来自 `docs/SPEC-feedback.md`（冻结规格）与 `@causal-layers/clis-contracts`，
  * 绝不从 `packages/clis-feedback/src/**` 反推。
  * （唯一例外：`feedback-static.test.ts` 依 SPEC §6-4 读源码文本做静态断言。）
  *
- * 本文件刻意**不** import `@clis/clis-feedback`，故障面被限制在测试文件内。
+ * 本文件刻意**不** import `@causal-layers/clis-feedback`，故障面被限制在测试文件内。
  */
 import { expect } from 'vitest';
 
@@ -14,7 +14,7 @@ import {
   FEEDBACK_SIGNAL_TYPES,
   KNOWN_CAUSAL_TYPES,
   ROLLBACK_KINDS,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   BlockedAction,
   CausalClassificationRef,
@@ -29,7 +29,7 @@ import type {
   FeedbackRequest,
   FeedbackSignal,
   FeedbackSignalType,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 export const HISTORICAL_DEVIATIONS: readonly FeedbackSignalType[] = ['ineffective'];
 

@@ -19,7 +19,7 @@ import type {
   ActionExecutor,
   ActionInvocation,
   ActionResult,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /** 动作的副作用等级。 */
 export type ActionSideEffect = 'read' | 'write';

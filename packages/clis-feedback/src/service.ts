@@ -1,13 +1,13 @@
 import { Service } from '@deepseek-ai/cordis';
 import type { Context } from '@deepseek-ai/cordis';
 
-import { CAUSAL_FEEDBACK_SERVICE } from '@clis/clis-contracts';
+import { CAUSAL_FEEDBACK_SERVICE } from '@causal-layers/clis-contracts';
 import type {
   DetectOptions,
   FeedbackRequest,
   FeedbackService,
   FeedbackSignal,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { detectSignal } from './detect';
 

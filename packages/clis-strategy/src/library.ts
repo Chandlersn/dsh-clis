@@ -1,4 +1,4 @@
-import type { PathScoreComponents, PathVariantId, StrategyFamily } from '@clis/clis-contracts';
+import type { PathScoreComponents, PathVariantId, StrategyFamily } from '@causal-layers/clis-contracts';
 
 /**
  * 策略库：参数化、可版本化的策略本体。

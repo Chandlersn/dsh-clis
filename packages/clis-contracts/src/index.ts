@@ -1,5 +1,5 @@
 /**
- * @clis/clis-contracts —— CLIS 共享契约包。
+ * @causal-layers/clis-contracts —— CLIS 共享契约包。
  *
  * 唯一职责：定义类型、四问、输出结构、排序公式与抽象服务接口。
  * 不含任何判定逻辑、策略逻辑或反馈逻辑；不 import 任何 CLIS 插件实现。

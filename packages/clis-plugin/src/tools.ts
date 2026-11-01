@@ -4,7 +4,7 @@ import type {
   FourAnswers,
   KnownCausalType,
   StrategyBoundary,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';

@@ -6,7 +6,7 @@ import {
   CAUSAL_FEEDBACK_SERVICE,
   CAUSAL_ORCHESTRATOR_SERVICE,
   CAUSAL_STRATEGY_SERVICE,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 import type {
   ActionExecutor,
   CausalClassification,
@@ -18,10 +18,10 @@ import type {
   FeedbackSignal,
   FeedbackSignalType,
   StrategyService,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
-import * as orchestratorPlugin from '@clis/clis-orchestrator';
-import { initialState } from '@clis/clis-orchestrator';
+import * as orchestratorPlugin from '@causal-layers/clis-orchestrator';
+import { initialState } from '@causal-layers/clis-orchestrator';
 
 /** 三个服务的 mock —— 用于把编排逻辑与真实实现完全隔离。 */
 class MockClassifier extends Service implements CausalClassifierService {

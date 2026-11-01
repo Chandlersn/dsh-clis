@@ -6,9 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { blockedReason, scorePath } from '@clis/clis-contracts';
-import type { CandidatePath } from '@clis/clis-contracts';
-import * as strategyPlugin from '@clis/clis-strategy';
+import { blockedReason, scorePath } from '@causal-layers/clis-contracts';
+import type { CandidatePath } from '@causal-layers/clis-contracts';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
 
 import {
   ALL_CLASSIFICATIONS,

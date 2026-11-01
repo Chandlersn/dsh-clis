@@ -1,4 +1,4 @@
-import { blockedReason } from '@clis/clis-contracts';
+import { blockedReason } from '@causal-layers/clis-contracts';
 import type {
   BlockedAction,
   BlockedActionReason,
@@ -8,7 +8,7 @@ import type {
   ExecutionSignal,
   ExecutionSignalKind,
   ExecutionStatus,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 import { assertExecuteOptions, assertPath } from './validation';
 

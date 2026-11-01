@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
-import type { HealthProbe } from '@clis/clis-contracts';
+import type { HealthProbe } from '@causal-layers/clis-contracts';
 
 import type { ProbeSource } from './health-supervisor';
 

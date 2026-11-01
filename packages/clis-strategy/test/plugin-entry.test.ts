@@ -1,15 +1,15 @@
 import { Context, Service } from '@deepseek-ai/cordis';
 import { describe, expect, it } from 'vitest';
 
-import { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from '@clis/clis-contracts';
+import { CAUSAL_CLASSIFIER_SERVICE, CAUSAL_STRATEGY_SERVICE } from '@causal-layers/clis-contracts';
 import type {
   CausalClassification,
   CausalClassifierService,
   CausalProblem,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
-import * as strategyPlugin from '@clis/clis-strategy';
-import { matchPaths } from '@clis/clis-strategy';
+import * as strategyPlugin from '@causal-layers/clis-strategy';
+import { matchPaths } from '@causal-layers/clis-strategy';
 
 import { boundary, makeClassification } from './fixtures';
 

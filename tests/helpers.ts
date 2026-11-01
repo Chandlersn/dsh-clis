@@ -2,7 +2,7 @@
  * 独立黑盒验收套件的共享工具。
  *
  * 纪律：本文件的一切期望值只来自 `docs/SPEC-classifier.md`（冻结规格）与
- * `@clis/clis-contracts`（共享契约），绝不从 `packages/clis-classifier/src/**`
+ * `@causal-layers/clis-contracts`（共享契约），绝不从 `packages/clis-classifier/src/**`
  * 的实现反推。（唯一例外：`classifier-responsibility.test.ts` 的静态检查按
  * SPEC §6 第 12 项读取源码文本做断言。）
  */
@@ -13,8 +13,8 @@ import {
   CONFIDENCE_CEILING,
   EXPLORATION_THRESHOLD,
   KNOWN_CAUSAL_TYPES,
-} from '@clis/clis-contracts';
-import { ClisContractError } from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
+import { ClisContractError } from '@causal-layers/clis-contracts';
 import type {
   CausalClassification,
   CausalProblem,
@@ -23,7 +23,7 @@ import type {
   FourAnswers,
   JudgmentBasis,
   TriState,
-} from '@clis/clis-contracts';
+} from '@causal-layers/clis-contracts';
 
 /** SPEC §4：判据规则表 R1–R11，`judgment_basis` 必须每条各一项。 */
 export const RULE_IDS: readonly string[] = [

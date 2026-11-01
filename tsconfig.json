@@ -2,8 +2,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@clis/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
-      "@clis/clis-classifier": ["./packages/clis-classifier/src/index.ts"]
+      "@causal-layers/clis-contracts": ["./packages/clis-contracts/src/index.ts"],
+      "@causal-layers/clis-classifier": ["./packages/clis-classifier/src/index.ts"],
+      "@causal-layers/clis-strategy": ["./packages/clis-strategy/src/index.ts"],
+      "@causal-layers/clis-feedback": ["./packages/clis-feedback/src/index.ts"],
+      "@causal-layers/clis-orchestrator": ["./packages/clis-orchestrator/src/index.ts"]
     }
   },
   "include": [

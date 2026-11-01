@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@causal-layers/clis-contracts": ["../clis-contracts/src/index.ts"],
+      "@causal-layers/clis-classifier": ["../clis-classifier/src/index.ts"],
+      "@causal-layers/clis-strategy": ["../clis-strategy/src/index.ts"],
+      "@causal-layers/clis-feedback": ["../clis-feedback/src/index.ts"],
+      "@causal-layers/clis-orchestrator": ["../clis-orchestrator/src/index.ts"],
+      "@causal-layers/clis-plugin": ["../clis-plugin/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
