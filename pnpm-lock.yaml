@@ -43,7 +43,7 @@ importers:
   packages/clis-classifier:
     dependencies:
       '@causal-layers/clis-contracts':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../clis-contracts
     devDependencies:
       '@deepseek-ai/cordis':
@@ -65,7 +65,7 @@ importers:
   packages/clis-feedback:
     dependencies:
       '@causal-layers/clis-contracts':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../clis-contracts
     devDependencies:
       '@deepseek-ai/cordis':
@@ -108,7 +108,7 @@ importers:
   packages/clis-strategy:
     dependencies:
       '@causal-layers/clis-contracts':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../clis-contracts
     devDependencies:
       '@deepseek-ai/cordis':

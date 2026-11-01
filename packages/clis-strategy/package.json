@@ -1,43 +1,43 @@
 {
-    "name":  "@causal-layers/clis-strategy",
-    "version":  "0.1.0",
-    "type":  "module",
-    "description":  "CLIS 策略匹配：按因果类型生成候选路径并排序，不重新判断类型、不执行。",
-    "license":  "MIT",
-    "sideEffects":  false,
-    "files":  [
-                  "dist"
-              ],
-    "main":  "./dist/index.js",
-    "types":  "./dist/index.d.ts",
-    "exports":  {
-                    ".":  {
-                              "types":  "./dist/index.d.ts",
-                              "import":  "./dist/index.js"
-                          }
-                },
-    "engines":  {
-                    "node":  "\u003e=22"
-                },
-    "scripts":  {
-                    "build":  "tsc -p tsconfig.build.json \u0026\u0026 node ../../scripts/fix-esm-specifiers.mjs ./dist",
-                    "typecheck":  "tsc -p tsconfig.json --noEmit",
-                    "clean":  "node -e \"require(\u0027node:fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})\"",
-                    "prepublishOnly":  "pnpm run clean \u0026\u0026 pnpm run build"
-                },
-    "dependencies":  {
-                         "@causal-layers/clis-contracts": "workspace:*"
-                     },
-    "peerDependencies":  {
-                             "@deepseek-ai/cordis":  "4.0.5"
-                         },
-    "peerDependenciesMeta":  {
-                                 "@deepseek-ai/cordis":  {
-                                                             "optional":  true
-                                                         }
-                             },
-    "devDependencies":  {
-                            "@deepseek-ai/cordis":  "4.0.5",
-                            "typescript":  "5.9.3"
-                        }
+  "name": "@causal-layers/clis-strategy",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CLIS 策略匹配：按因果类型生成候选路径并排序，不重新判断类型、不执行。",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node ../../scripts/fix-esm-specifiers.mjs ./dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "pnpm run clean && pnpm run build"
+  },
+  "dependencies": {
+    "@causal-layers/clis-contracts": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.5",
+    "typescript": "5.9.3"
+  }
 }
