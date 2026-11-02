@@ -106,6 +106,51 @@ export function apply(ctx: Context): void {
   registerTools(ctx, sources);
   registerPromptSection(ctx);
 
+  // —— 向调度层贡献本领域的处境信号（2026-11-02）——
+  //
+  // 调度层（dsh-mind）判断"此刻该先看什么"。它原本只有自己写的词表，
+  // 于是**本领域的词汇全是盲区**：实测「判一下这个是不是回路」「因果结构」
+  // 「对偶」「归因」全部无信号 —— 而这些恰恰是本插件最该被用上的时刻。
+  //
+  // 用广播而非 import：直接 import 会让 CLIS 反向依赖 mind，
+  // 于是"没装 mind 就装不上 CLIS"。广播没有方向性 —— 缺 mind 时
+  // 这条广播无人接收，CLIS 照常工作。
+  //
+  // 信号是**声明**（词表 + 归属），不是判断逻辑：判定仍在调度层，
+  // CLIS 不决定"此刻该看谁"，只贡献"我的词汇长什么样"。
+  //
+  // ⚠️ 为什么用类型断言而不是扩展 `Events`：
+  // 事件类型声明若放在 clis-contracts，memory-manager（不依赖任何包）
+  // 就用不了同一个事件名 —— 类型层与运行时层会分叉。正确的归属是
+  // 通道拥有者（mind），而 CLIS 不该依赖 mind（那会破坏"缺 mind 也能用"）。
+  // 于是：CLIS 用局部断言发出，**载荷形状由契约测试保证**（见
+  // tests/signal-broadcast.test.ts）—— 类型断言换来的自由，用测试还回去。
+  const emitSignal = ctx.emit as unknown as (
+    name: string,
+    payload: {
+      name: string;
+      situation: string;
+      owner: string;
+      weight: number;
+      words: string[];
+      counterWords?: string[];
+    },
+  ) => void;
+  try {
+    emitSignal.call(ctx, 'mind/register-signal', {
+      name: 'clis-causal',
+      situation: 'diagnose',
+      owner: 'dsh-clis',
+      weight: 3,
+      words: [
+        '因果', '因果结构', '结构', '回路', '反馈环', '对偶', '矛盾', '环状', '张力',
+        '归因', '归因错', '诊断', '判一下结构', '是不是环', '为什么会这样', '根因',
+      ],
+    });
+  } catch {
+    /* 没有调度层（或旧宿主）→ 广播无人接收，CLIS 照常工作 */
+  }
+
   // 反馈介入：agent 碰到失败反馈的那一刻，递上一把尺子（见 intervene.ts）。
   // 只盯 isError 结果、窗口计数、冷却+signature 双抑制、零 I/O。
   const subscribeOk = registerIntervener(ctx);

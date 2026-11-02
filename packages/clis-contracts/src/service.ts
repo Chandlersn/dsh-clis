@@ -167,6 +167,10 @@ declare module '@deepseek-ai/cordis' {
     /** 由 clis-orchestrator 提供；消费方须先 inject 该服务名。 */
     'clis.causalOrchestrator': OrchestratorService;
   }
+  // ⚠️ 调度层事件（'mind/register-signal'）**不在这里声明**：
+  // 通道的拥有者是 mind（dsh-mind），而 memory-manager 不依赖任何包 ——
+  // 声明放在 clis-contracts 会让类型层与运行时层分叉（memory 用不了同一个
+  // 事件名）。CLIS 侧改用局部类型断言 + 契约测试保证载荷形状。
 }
 
 export type { Context };
