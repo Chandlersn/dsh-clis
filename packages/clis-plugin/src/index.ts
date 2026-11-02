@@ -1,12 +1,24 @@
 import type { Context } from '@deepseek-ai/cordis';
+import { join } from 'node:path';
 
 import { ClisHealthProbe } from './health-probe';
 import { startHotReload } from './hot-reload';
 import { registerIntervener } from './intervene';
+import { recordMetric } from './intervene-metrics';
 import { ProbeRegistry, scanKnownProbes } from './probe-registry';
 import type { ProbeSource } from './health-supervisor';
 import { registerPromptSection } from './prompt';
 import { registerTools } from './tools';
+
+/**
+ * 指标落盘目录。
+ *
+ * 与 `intervene.ts` 的缺省口径一致（DSH_HOME → ~/.dsh），抽成函数是为了
+ * 让"注册失败"这条记账也用同一个目录，而不是在两处各写一遍默认值。
+ */
+function dshHomeForMetrics(): string {
+  return process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '', '.dsh');
+}
 
 /**
  * 热重载监视器的进程级单例。
@@ -96,8 +108,30 @@ export function apply(ctx: Context): void {
 
   // 反馈介入：agent 碰到失败反馈的那一刻，递上一把尺子（见 intervene.ts）。
   // 只盯 isError 结果、窗口计数、冷却+signature 双抑制、零 I/O。
-  // 注册失败（无 tools 服务）静默跳过 —— 介入是增强，不是链路的一环。
-  registerIntervener(ctx);
+  const subscribeOk = registerIntervener(ctx);
+
+  // —— 注册没成功必须留下证据（2026-11-02）——
+  //
+  // 上一版这里是裸调用、返回值丢弃。而 `registerIntervener` 在拿不到
+  // `post-execute` 事件源时返回 `undefined`，**整个介入机制就不存在了**，
+  // 却没有任何一处能看出来：没有报错、没有日志、探针照报 ok，
+  // metrics 里 hinted=0 看上去和"最近没人失败"完全一样。
+  //
+  // 这正是"漏判没有分母"最极端的形态：分母恒为 0，连评估都没发生。
+  // 所以失败必须记一条 skipped（reason=subscriber-missing）：它让
+  // `evaluated` 从 0 变成一个非零数，missRate 立刻显形为 1.0。
+  if (subscribeOk === undefined) {
+    void recordMetric(dshHomeForMetrics(), {
+      kind: 'skipped',
+      agent: 'plugin',
+      reason: 'subscriber-missing',
+      gate: 'gate-0-subscribe',
+    });
+    ctx.logger?.warn?.(
+      'clis 介入器未注册：拿不到 tools/post-execute 事件源。' +
+        'CLIS 的失败反馈介入在本宿主上不会发生 —— 这不是"没人失败"，是"没人看"。',
+    );
+  }
 
   // —— 智能热重载看门狗（进程级单例，见上方 HOT_RELOAD_KEY 注释）——
   //

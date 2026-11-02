@@ -367,8 +367,12 @@ describe('监听器落账：hinted 与 adopted 两个时机', () => {
     expect(existsSync(path)).toBe(true);
     expect(path).toContain(join('storages', 'clis-interventions.jsonl'));
     const lines = readFileSync(path, 'utf8').split('\n').filter((l) => l.trim());
-    expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!).kind).toBe('hinted');
+    // 2026-11-02 起每次评估都落账：第 1 次失败未达阈值 → skipped，
+    // 第 2 次触发 → hinted。两行都要在，否则"漏判"又没记录了。
+    expect(lines).toHaveLength(2);
+    expect(JSON.parse(lines[0]!).kind).toBe('skipped');
+    expect(JSON.parse(lines[0]!).reason).toBe('below-threshold');
+    expect(JSON.parse(lines[1]!).kind).toBe('hinted');
   });
 
   // —— 2026-10-30 真机补：非零退出码也算失败 ——
@@ -470,5 +474,148 @@ describe('闸门行为与指标的耦合', () => {
     expect(shouldIntervene(state, 'a', 't', 'm', Date.now())).toBeUndefined();
     // markToolUsed 也一样：没有 hinted 前提时 adopted 仍单独成立
     markToolUsed(state, 'a');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-11-02 · 漏判分母
+//
+// 旧版只有 hinted/adopted，`adoptionRate` 是个没有分母的比率：说得出
+// "提示被采纳多少"，说不出"该提示而没提示的有多少"。于是"机制正常"与
+// "根本没在管"在指标上完全同形（实测过 hinted=0 两周无人察觉）。
+//
+// 这一组钉住两件事：
+//   1. 每个否决闸门都留下**带原因**的记录，六种理由不能被压成一个空值
+//   2. 汇总能算出 evaluated 与 missRate —— 分母真的存在
+// ---------------------------------------------------------------------------
+describe('漏判分母：每次评估都要留下原因', () => {
+  /** 造一个能挂监听器的假 ctx（与生产形状一致：ctx.on 提供 post-execute）。 */
+  function ctxWithListener() {
+    let listener: ((exec: unknown, result: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
+    return {
+      ctx: {
+        on: (event: string, fn: typeof listener) => {
+          if (event === 'tools/post-execute') listener = fn;
+          return () => {};
+        },
+      },
+      run: async (exec: unknown, result: unknown) => {
+        if (listener === undefined) throw new Error('listener 未注册');
+        const out = await listener(exec, result, async () => ({ kind: 'accept' }));
+        // recordMetric 是 fire-and-forget（生产里绝不等待），且内部是真实
+        // 文件 I/O。测试必须给 I/O 一个宏任务周期，否则读到的是"还没写完"
+        // 的文件 —— 这正是本组用例第一版全红的原因（不是实现问题）。
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return out;
+      },
+    };
+  }
+
+  /** 读指标文件里所有 skipped 行。 */
+  function skippedReasons(): string[] {
+    const path = metricsFilePath(sandbox);
+    if (!existsSync(path)) return [];
+    return readFileSync(path, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as { kind?: string; reason?: string })
+      .filter((e) => e.kind === 'skipped')
+      .map((e) => String(e.reason));
+  }
+
+  it('未达阈值 → 记 below-threshold（不再是无声的 undefined）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    await run({ name: 'fs_write', agent: { id: 'a1' } }, { isError: true, error: { message: SEM_FAILURE } });
+
+    expect(skippedReasons()).toEqual(['below-threshold']);
+  });
+
+  it('基础设施型失败 → 记 not-worth-intervening（闸门 0）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    // EPERM/权限类归 INFRA：本就不该用因果结构介入
+    await run(
+      { name: 'pwsh', agent: { id: 'a1' } },
+      { isError: true, error: { message: 'EPERM: access denied' } },
+    );
+
+    expect(skippedReasons()).toEqual(['not-worth-intervening']);
+  });
+
+  it('同一签名已提醒过 → 记 already-hinted（闸门 3a 去重）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    const exec = { name: 'fs_write', agent: { id: 'a1' } };
+    const fail = { isError: true, error: { message: SEM_FAILURE } };
+    await run(exec, fail); // below-threshold
+    await run(exec, fail); // hinted
+    await run(exec, fail); // already-hinted
+
+    expect(skippedReasons()).toContain('already-hinted');
+  });
+
+  it('冷却期内另一签名 → 记 cooldown（闸门 3b）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    const exec = { name: 'fs_write', agent: { id: 'a1' } };
+    const failA = { isError: true, error: { message: SEM_FAILURE } };
+    // 先把签名 A 顶到阈值并注入（占用冷却期）
+    await run(exec, failA);
+    await run(exec, failA);
+    // 换一个语义型签名 B，两次达阈值，但冷却期还没过
+    const failB = { isError: true, error: { message: 'TypeError: x is not a function' } };
+    await run(exec, failB);
+    await run(exec, failB);
+
+    expect(skippedReasons()).toContain('cooldown');
+  });
+
+  it('汇总给出 evaluated 与 missRate（分母真的存在）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    const exec = { name: 'fs_write', agent: { id: 'a1' } };
+    const fail = { isError: true, error: { message: SEM_FAILURE } };
+    await run(exec, fail); // skipped(below-threshold)
+    await run(exec, fail); // hinted
+    await run(exec, fail); // skipped(already-hinted)
+
+    const s = await summarizeMetrics(sandbox, 30);
+    expect(s.hinted).toBe(1);
+    expect(s.skipped).toBe(2);
+    expect(s.evaluated).toBe(3);
+    // 2/3 被主动放过 —— 这个数以前根本算不出来
+    expect(s.missRate).toBeCloseTo(2 / 3, 5);
+    expect(s.skippedByReason['below-threshold']).toBe(1);
+    expect(s.skippedByReason['already-hinted']).toBe(1);
+    // 闸门聚合：能看出是哪道闸门否决得多
+    expect(s.skippedByGate['gate2-window']).toBe(1);
+    expect(s.skippedByGate['gate3a-dedupe']).toBe(1);
+  });
+
+  it('一个失败都没有时 evaluated=0、missRate=null（不报假健康）', async () => {
+    const s = await summarizeMetrics(sandbox, 30);
+    expect(s.evaluated).toBe(0);
+    expect(s.missRate).toBeNull();
+  });
+
+  it('只放过、从不介入时 missRate=1（"根本没在管"终于显形）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    // 三次都不一样的基础设施型失败：每次都评估、每次都放过
+    for (const msg of ['EPERM: denied', 'EACCES: denied 2', 'EPERM: denied 3']) {
+      await run({ name: 'pwsh', agent: { id: 'a1' } }, { isError: true, error: { message: msg } });
+    }
+
+    const s = await summarizeMetrics(sandbox, 30);
+    expect(s.hinted).toBe(0);
+    expect(s.skipped).toBe(3);
+    expect(s.missRate).toBe(1);
   });
 });

@@ -16,6 +16,7 @@ import { readSeenState, reconcileFindings, writeSeenState } from './health-seen'
 import { autoSources, buildScope, listPlugins } from './plugin-scope';
 import { HealthSupervisor } from './health-supervisor';
 import { summarizeMetrics } from './intervene-metrics';
+import type { InterventionSummary } from './intervene-metrics';
 import type { ProbeSource } from './health-supervisor';
 import { toToolJson } from './tool-json';
 import { ClisHistoryStore, fingerprint } from './history';
@@ -557,7 +558,7 @@ export function registerTools(
     defineTool({
       name: 'clis_metrics',
       description:
-        'Read intervention-effectiveness metrics for CLIS. hinted = failure-feedback hints actually injected into the agent loop; adopted = the agent then called clis_run/clis_classify; adoptionRate = adopted/hinted over the window. Zero hints means the gate never fired; a near-zero rate means the hint is seen but not trusted — both are actionable. Read-only; no experiment required to collect.',
+        'Read intervention-effectiveness metrics for CLIS, including its own miss rate. hinted = failure-feedback hints actually injected into the agent loop; adopted = the agent then called clis_run/clis_classify; adoptionRate = adopted/hinted. skipped = failures the gate evaluated and deliberately passed over, with reason and gate breakdown; missRate = skipped/evaluated. Read hinted alone and "the gate is working" looks identical to "nobody is watching" — missRate is the denominator that separates them. A missRate near 1 means the gate passes everything (effectively off); near 0 means it is nagging. Read-only; no experiment required to collect.',
       parameters: {
         window_days: {
           type: 'number',
@@ -578,18 +579,21 @@ export function registerTools(
           adoption_rate: summary.adoptionRate,
           // 与提示无关的自主调用：单列，**不进分子**。
           spontaneous: summary.spontaneous,
+          // —— 漏判分母（2026-11-02）——
+          // 没有这三个字段时，hinted 单独读起来"正常"与"根本没在管"同形。
+          skipped: summary.skipped,
+          evaluated: summary.evaluated,
+          miss_rate: summary.missRate,
+          skipped_by_reason: summary.skippedByReason,
+          skipped_by_gate: summary.skippedByGate,
           // 判读指引：数字本身不说明好坏，解释框架要给足。
-          reading:
-            summary.hinted === 0
-              ? '窗口内没有任何介入发生：要么没有失败反馈，要么全部被闸门拦下（正常与否看使用强度）。'
-              : summary.adoptionRate !== null && summary.adoptionRate >= 0.3
-                ? '采用率健康：提示被看见且多数被采纳。'
-                : '采用率偏低：提示被看见但没被信任。优先检查提示措辞是否太像命令、触发时机是否太频繁。',
+          reading: summarizeReading(summary),
           // 采纳口径说明：adopted 是**有条件**的（同一 agent 此前 30 分钟内有提示）。
           // 不写这句，读者会以为 adopted 只是"调过 CLIS 的次数"。
           definition:
             'adopted 只统计「同一 agent 此前 30 分钟内收到过提示」的 CLIS 调用；' +
-            'spontaneous 是没有任何前提提示的自主调用，不计入分子。',
+            'spontaneous 是没有任何前提提示的自主调用，不计入分子。' +
+            'evaluated = hinted + skipped（机制真正看过的失败数）；missRate = skipped/evaluated。',
         });
       },
     }),
@@ -599,6 +603,49 @@ export function registerTools(
 /** 与 history.ts / intervene-metrics.ts 同一推导：DSH_HOME → ~/.dsh。 */
 function dshHomeOf(): string {
   return process.env.DSH_HOME ?? join(homedir(), '.dsh');
+}
+
+/**
+ * 把指标翻译成一句可行动的判断。
+ *
+ * ## 为什么要单独一个函数（2026-11-02）
+ *
+ * 旧版只看 `adoptionRate`，于是它必然答错一个问题：**机制有没有在看**。
+ * 两种截然不同的病因会给出同一种"正常"读数：
+ *
+ * - 监听器根本没注册（实测过：hinted=0 持续两周没人察觉）
+ * - 闸门把一切都放过了（评估在进行，但从不介入）
+ *
+ * 补上 `missRate` 之后两者可分：前者 `evaluated=0`（连评估都没有），
+ * 后者 `evaluated>0 且 missRate=1`（在看，但从不说话）。
+ *
+ * @param s 汇总结果。
+ * @returns 一句判读。
+ */
+function summarizeReading(s: InterventionSummary): string {
+  // 最严重：机制根本没在评估 —— 这不是"没问题"，是"没人看"。
+  if (s.evaluated === 0) {
+    return (
+      '窗口内机制一次都没评估过失败：要么确实没有失败，要么介入器没注册上。' +
+      '注意这两种在数字上完全同形 —— 去查宿主日志里有没有"介入器未注册"。'
+    );
+  }
+  if (s.missRate !== null && s.missRate >= 0.95) {
+    return (
+      `漏判率 ${(s.missRate * 100).toFixed(0)}%：闸门几乎放过了所有失败，介入实际上没发生。` +
+      `主因看 skipped_by_gate（多数否决来自哪道闸门）。`
+    );
+  }
+  if (s.hinted === 0) {
+    return `评估了 ${s.evaluated} 次但一次也没介入：全部被闸门拦下，属放行状态，不是故障。`;
+  }
+  if (s.adoptionRate !== null && s.adoptionRate >= 0.3) {
+    return `采用率健康（${(s.adoptionRate * 100).toFixed(0)}%）；漏判率 ${((s.missRate ?? 0) * 100).toFixed(0)}% 说明闸门在过滤而非失明。`;
+  }
+  return (
+    `采用率偏低（${s.adoptionRate === null ? 'n/a' : `${(s.adoptionRate * 100).toFixed(0)}%`}）：` +
+    '提示被看见但没被信任。优先检查措辞是否太像命令、触发时机是否太频繁。'
+  );
 }
 
 export type { QuestionKey };

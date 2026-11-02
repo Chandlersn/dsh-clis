@@ -240,14 +240,67 @@ function firstErrorLine(message: string): string {
 }
 
 /**
- * 判定是否应当介入 —— **纯函数**，所有策略都在这里，便于穷举测试。
+ * 不介入的原因代号 —— **每道闸门一个，且稳定**。
  *
- * @param state 全局介入状态（会被滑动窗口更新）。
- * @param agentId agent 标识。
- * @param tool 失败的工具名。
- * @param message 失败消息。
- * @param now 当前时间（测试注入）。
- * @returns 应注入的提示正文；不介入时 undefined。
+ * ## 为什么需要它（2026-11-02）
+ *
+ * 旧版 `shouldIntervene` 在六个地方 `return undefined`，返回值的语义只有
+ * "介入 / 不介入"。于是**六种完全不同的否决理由被压成同一个空值**：
+ *
+ * - 失败是基础设施型（本就不该管）
+ * - 只失败了一次（窗口还没够）
+ * - 已经提醒过这个签名
+ * - 冷却期未过
+ *
+ * 结果就是 `adoptionRate` 只有分子、没有分母：它答不出"该提示而没提示的
+ * 有多少"。实测过 hinted=0 连续两周没人察觉（监听器压根没注册），也实测过
+ * 触发率 3.5% 被当成健康 —— 两者的指标形态一模一样。
+ *
+ * 现在每个否决点都必须说出理由，理由会被记进 metrics。代价是判定从
+ * `string | undefined` 变成对象，收益是闸门第一次可调。
+ *
+ * 代号**不能随手改**：它们会被人按名字检索与统计。
+ */
+export type SkipReason =
+  /** 不是语义型失败（INFRA / MECH）：本就不该用因果结构介入。 */
+  | 'not-worth-intervening'
+  /** 窗口内同签名还没攒到阈值（偶发失败）。 */
+  | 'below-threshold'
+  /** 该签名此前已提醒过，且 agent 还没调用过 CLIS。 */
+  | 'already-hinted'
+  /** 冷却期未过（同 agent 刚被提醒过）。 */
+  | 'cooldown';
+
+/** 每个原因属于哪道闸门（便于按"哪道闸门否决最多"聚合）。 */
+export const SKIP_GATES: Record<SkipReason, string> = {
+  'not-worth-intervening': 'gate0-worth',
+  'below-threshold': 'gate2-window',
+  'already-hinted': 'gate3a-dedupe',
+  cooldown: 'gate3b-cooldown',
+};
+
+/** 一次判定的结果。 */
+export interface InterveneDecision {
+  /** 要注入的提示正文；不介入时为 undefined。 */
+  readonly hint?: string;
+  /** 这次判定**看过**了一次失败（无论结果如何）—— 分母的计数依据。 */
+  readonly evaluated: true;
+  /** 不介入时的原因代号；介入时为 undefined。 */
+  readonly skipped?: SkipReason;
+  /** 失败签名（介入与跳过都带上，便于关联）。 */
+  readonly signature: string;
+}
+
+/**
+ * 判定是否应当介入 —— 面向既有调用方/测试的**薄兼容层**。
+ *
+ * 只返回提示正文或 `undefined`，把原因丢掉。新代码请用
+ * {@link evaluateIntervention} —— 它能说出"为什么不介入"，而这里不能。
+ *
+ * 保留它是因为测试与外部调用按 `string | undefined` 断言；改签名会让
+ * 一批与本改动无关的用例变红，掩盖真正该看的回归。
+ *
+ * @deprecated 用 {@link evaluateIntervention} 取得原因。
  */
 export function shouldIntervene(
   state: InterveneState,
@@ -256,15 +309,36 @@ export function shouldIntervene(
   message: string,
   now: number,
 ): string | undefined {
+  return evaluateIntervention(state, agentId, tool, message, now).hint;
+}
+
+/**
+ * 判定是否应当介入 —— **纯函数**，所有策略都在这里，便于穷举测试。
+ *
+ * @param state 全局介入状态（会被滑动窗口更新）。
+ * @param agentId agent 标识。
+ * @param tool 失败的工具名。
+ * @param message 失败消息。
+ * @param now 当前时间（测试注入）。
+ * @returns 判定结果（带原因）；既然是一次评估，就总有返回值。
+ */
+export function evaluateIntervention(
+  state: InterveneState,
+  agentId: string,
+  tool: string,
+  message: string,
+  now: number,
+): InterveneDecision {
   // —— 闸门 0：这次失败值不值得用因果结构介入 ——
   //
   // 放在最前面（早于任何记账）：不值得介入的失败连窗口都不该占。
   // 否则一个 agent 连续撞 5 次 `old_string was not found`，会把窗口塞满，
   // 挤掉后面真正该管的语义型失败。
   const kind = classifyFailureKind(tool, message);
-  if (!worthCausalIntervention(kind)) return undefined;
-
   const signature = failureSignature(tool, message);
+  if (!worthCausalIntervention(kind)) {
+    return { evaluated: true, skipped: 'not-worth-intervening', signature };
+  }
 
   // —— 闸门 2：滑动窗口计数（按 agent+工具 分桶）——
   // 为什么按 agent 隔离：多 agent 并发时，A 的失败不应计入 B 的窗口 ——
@@ -281,7 +355,9 @@ export function shouldIntervene(
     window.shift();
   }
   const sameSignature = window.filter((r) => r.signature === signature).length;
-  if (sameSignature < FAILURE_THRESHOLD) return undefined;
+  if (sameSignature < FAILURE_THRESHOLD) {
+    return { evaluated: true, skipped: 'below-threshold', signature };
+  }
 
   // —— 闸门 3a：同一 signature 只提醒一次 ——
   let hinted = state.hinted.get(agentId);
@@ -289,18 +365,26 @@ export function shouldIntervene(
     hinted = new Set();
     state.hinted.set(agentId, hinted);
   }
-  if (hinted.has(signature)) return undefined;
+  if (hinted.has(signature)) {
+    return { evaluated: true, skipped: 'already-hinted', signature };
+  }
 
   // —— 闸门 3b：冷却期 ——
   const last = state.lastIntervened.get(agentId);
-  if (last !== undefined && now - last < COOLDOWN_MS) return undefined;
+  if (last !== undefined && now - last < COOLDOWN_MS) {
+    return { evaluated: true, skipped: 'cooldown', signature };
+  }
 
   // 两个抑制闸门都过了：记账并介入。hinted 永不清除 —— agent 真去调了
   // clis_run 之后，是它自己的选择；同一个失败没必要再唠叨第二遍。
   hinted.add(signature);
   state.lastIntervened.set(agentId, now);
   // 语气：窗口内该签名已累计到 3 次以上，说明不是偶发 —— 该怀疑假设了。
-  return hintTextFor(sameSignature >= ESCALATE_THRESHOLD ? 'escalating' : 'repeated');
+  return {
+    evaluated: true,
+    signature,
+    hint: hintTextFor(sameSignature >= ESCALATE_THRESHOLD ? 'escalating' : 'repeated'),
+  };
 }
 
 /**
@@ -489,13 +573,36 @@ export function registerIntervener(
 
       // 失败描述：isError 走错误消息；非零退出码走退出码描述。
       const message = exitFailure ?? failureMessageOf(result);
-      const hint = shouldIntervene(state, agentId, tool, message, Date.now());
-      if (hint === undefined) return decision;
+      const outcome = evaluateIntervention(state, agentId, tool, message, Date.now());
+
+      // —— 不介入也要记账（2026-11-02 补漏判分母）——
+      //
+      // 旧版这里是 `if (hint === undefined) return decision;` —— 六种否决
+      // 理由全部消失，只留下"没提示"。于是指标只有分子没有分母：说得出
+      // "提示被采纳了多少"，说不出"该提示而没提示的有多少"。
+      //
+      // 现在每个否决都记一条带原因的 skipped。它**不产生任何注入**，
+      // 只落一行 JSONL；fire-and-forget，失败不影响主链路。
+      if (outcome.hint === undefined) {
+        void recordMetric(dshHome, {
+          kind: 'skipped',
+          agent: agentId,
+          tool,
+          signature: outcome.signature,
+          reason: outcome.skipped,
+          gate: outcome.skipped === undefined ? undefined : SKIP_GATES[outcome.skipped],
+        });
+        return decision;
+      }
 
       // 注入了提示：记 hinted —— 采用率的分母。签名一并记下，
       // 便于把"哪类失败最常触发介入"与"哪类被采纳"关联起来。
-      const signature = failureSignature(tool, message);
-      void recordMetric(dshHome, { kind: 'hinted', agent: agentId, tool, signature });
+      void recordMetric(dshHome, {
+        kind: 'hinted',
+        agent: agentId,
+        tool,
+        signature: outcome.signature,
+      });
 
       // 注入的消息必须用宿主（或等价本地实现）造出唯一 id。
       //
@@ -503,7 +610,7 @@ export function registerIntervener(
       // 要求 `id` 存在且唯一 —— inbox 按 id 去重（`message "<id>" is already
       // pending` 会抛），durable 校验也要求合规对象。手写形状缺 id 时，
       // 单条注入侥幸能过，**同一轮注入两条**就因 id 相同被宿主拒绝。
-      const context = createInjectedMessage(hint);
+      const context = createInjectedMessage(outcome.hint);
       return {
         ...decision,
         additionalContexts: [...(decision.additionalContexts ?? []), context],

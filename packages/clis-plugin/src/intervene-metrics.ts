@@ -34,14 +34,45 @@ const METRICS_REL_PATH = join('storages', 'clis-interventions.jsonl');
 export interface InterventionMetric {
   /** 介入时间（ISO 8601）。 */
   readonly t: string;
-  /** 事件种类：hinted = 注入了提示；adopted = 提示后 agent 调了 CLIS 工具。 */
-  readonly kind: 'hinted' | 'adopted';
+  /**
+   * 事件种类。
+   *
+   * - `hinted`：注入了提示（症状出现了）
+   * - `adopted`：提示后 agent 调了 CLIS 工具（听进去了）
+   * - `skipped`：**看过这次失败、判定不介入**并记下原因（没出现的症状）
+   *
+   * ## 为什么必须有 skipped
+   *
+   * 只有 hinted/adopted 时，`adoptionRate` 是个**没有分母的比率**：
+   * 它答不出"该提示而没提示的有多少"。于是"机制正常"与"根本没在管"
+   * 在指标上完全同形 —— 实测过 hinted=0 持续两周无人察觉（监听器根本没
+   * 注册），也实测过触发率 3.5% 被当作健康。两种情况数字不同、病因不同，
+   * 但指标形态一样。
+   *
+   * 补上 skipped 之后，才第一次能算：
+   *
+   * - `evaluated = hinted + skipped` —— 机制真正看过多少失败
+   * - `missRate = skipped / evaluated` —— 它自己承认放过了多少
+   *
+   * 这个数**不为 0 是正常的**（本就该大量放过）；但它必须**可读**，
+   * 否则闸门等于在黑暗中调节。
+   */
+  readonly kind: 'hinted' | 'adopted' | 'skipped';
   /** agent 标识。 */
   readonly agent: string;
-  /** 触发介入的工具名（hinted 时）。 */
+  /** 触发介入的工具名（hinted / skipped 时）。 */
   readonly tool?: string;
-  /** 失败签名（hinted 时；与 intervene.ts 的去重键一致，便于关联）。 */
+  /** 失败签名（hinted / skipped 时；与 intervene.ts 的去重键一致，便于关联）。 */
   readonly signature?: string;
+  /**
+   * skipped 的**原因代号**（skipped 时必有）。
+   *
+   * 每道闸门一个代号，且代号稳定 —— 它们会被按名字统计与检索，
+   * 不能随文案改。设计见 `intervene.ts` 的 `SkipReason`。
+   */
+  readonly reason?: string;
+  /** 该原因所属的闸门（skipped 时）—— 便于按"哪道闸门在多数否决"聚合。 */
+  readonly gate?: string;
   /** 被调用的 CLIS 工具名（adopted 时）。 */
   readonly via?: string;
   /**
@@ -69,6 +100,30 @@ export interface InterventionSummary {
    * 报出 0.83 的健康假象）。
    */
   readonly spontaneous: number;
+  /**
+   * 机制**看过但主动放过**的失败次数（按 cause 分组的明细见 `skippedByReason`）。
+   *
+   * 这是 missing denominator：没有它，`adoptionRate` 只描述"提示被采纳多少"，
+   * 不描述"该提示的有多少没被提示"。
+   */
+  readonly skipped: number;
+  /** 按原因是细分的跳过计数（原因代号 → 次数），按次数降序便于直接看出主因。 */
+  readonly skippedByReason: Record<string, number>;
+  /** 按闸门细分的跳过计数（闸门代号 → 次数）。 */
+  readonly skippedByGate: Record<string, number>;
+  /**
+   * 机制评估过的失败总数 = hinted + skipped。
+   *
+   * 它是"分母"的本体：`missRate` 才让"正常"与"根本没在管"可分。
+   */
+  readonly evaluated: number;
+  /**
+   * 漏判率 = skipped / evaluated（0–1）；evaluated=0 时为 null。
+   *
+   * 语义是"机制自己承认放过的比例"。**不为 0 是健康的** ——
+   * 全放过（≈1）说明闸门形同虚设，全不放过（≈0）该查是不是在唠叨。
+   */
+  readonly missRate: number | null;
   /** 最近 N 天才有数据；0 表示还没有任何介入发生。 */
   readonly windowDays: number;
 }
@@ -144,6 +199,9 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
   let hinted = 0;
   let adopted = 0;
   let spontaneous = 0;
+  let skipped = 0;
+  const skippedByReason: Record<string, number> = {};
+  const skippedByGate: Record<string, number> = {};
   /** agent → 该 agent 尚未被兑现的最近一次 hinted 时间戳。 */
   const lastHintAt = new Map<string, number>();
   try {
@@ -155,7 +213,13 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
       if (!s) continue;
       if (++scanned > 10_000) break;
       try {
-        const e = JSON.parse(s) as { t?: unknown; kind?: unknown; agent?: unknown };
+        const e = JSON.parse(s) as {
+          t?: unknown;
+          kind?: unknown;
+          agent?: unknown;
+          reason?: unknown;
+          gate?: unknown;
+        };
         const t = Date.parse(String(e.t));
         if (!Number.isFinite(t) || t < cutoff) continue;
         const agent = typeof e.agent === 'string' ? e.agent : '';
@@ -174,6 +238,14 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
           } else {
             spontaneous += 1;
           }
+        } else if (e.kind === 'skipped') {
+          // 漏判记录：既有原因也有闸门。缺字段的旧行按 unknown 计，
+          // 不丢样本（丢样本会让分母偏小、missRate 虚低）。
+          skipped += 1;
+          const reason = typeof e.reason === 'string' && e.reason.length > 0 ? e.reason : 'unknown';
+          const gate = typeof e.gate === 'string' && e.gate.length > 0 ? e.gate : 'unknown';
+          skippedByReason[reason] = (skippedByReason[reason] ?? 0) + 1;
+          skippedByGate[gate] = (skippedByGate[gate] ?? 0) + 1;
         }
       } catch {
         /* skip corrupt line */
@@ -182,6 +254,10 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
   } catch {
     /* 文件不存在 = 还没有任何介入 */
   }
+  // 明细按次数降序：读的人第一眼要看到"哪道闸门否决得最多"。
+  const byCountDesc = (o: Record<string, number>): Record<string, number> =>
+    Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
+  const evaluated = hinted + skipped;
   return {
     hinted,
     adopted,
@@ -189,6 +265,11 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
     // 将来改动破坏这个不变量 —— 指标宁可保守，不可报出不可能的数值。
     adoptionRate: hinted === 0 ? null : Math.min(adopted / hinted, 1),
     spontaneous,
+    skipped,
+    skippedByReason: byCountDesc(skippedByReason),
+    skippedByGate: byCountDesc(skippedByGate),
+    evaluated,
+    missRate: evaluated === 0 ? null : skipped / evaluated,
     windowDays,
   };
 }
