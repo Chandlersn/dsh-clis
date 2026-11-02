@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { metricsFilePath, recordMetric, summarizeMetrics } from '../packages/clis-plugin/src/intervene-metrics';
+import { metricsFilePath, recordMetric, replayHintedState, summarizeMetrics } from '../packages/clis-plugin/src/intervene-metrics';
 import {
   createInterveneState,
   registerIntervener,
@@ -658,5 +658,135 @@ describe('漏判分母：每次评估都要留下原因', () => {
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l) as { signature?: string });
     expect(lines[0]!.signature).toBe('pwsh:exit code #');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2026-11-02 · 去重集跨重启
+//
+// hinted 去重此前是内存态：宿主重启即清空，同一 agent 同一失败会再提示
+// 一次（真数据抓到实例：重启后约 1 分钟同签名误弹）。修复是启动后重放
+// JSONL 灌回抑制集 —— 不新增第二份账本，事实源仍只有事件流。
+// ---------------------------------------------------------------------------
+describe('replayHintedState：从事件流重放抑制集', () => {
+  it('hinted 记录 → 去重集与冷却起点都重建', async () => {
+    await recordMetric(sandbox, { kind: 'hinted', agent: 'a1', tool: 't', signature: 'sig-1' });
+    await recordMetric(sandbox, { kind: 'hinted', agent: 'a1', tool: 't', signature: 'sig-2' });
+
+    const seed = await replayHintedState(sandbox);
+    expect([...(seed.hinted.get('a1') ?? [])]).toEqual(['sig-1', 'sig-2']);
+    expect(seed.lastIntervened.get('a1')).toBeTypeOf('number');
+  });
+
+  it('adopted 之后的记录不复活旧去重（markToolUsed 语义）', async () => {
+    await recordMetric(sandbox, { kind: 'hinted', agent: 'a1', tool: 't', signature: 'sig-1' });
+    await recordMetric(sandbox, { kind: 'adopted', agent: 'a1', via: 'clis_run' });
+    await recordMetric(sandbox, { kind: 'hinted', agent: 'a1', tool: 't', signature: 'sig-2' });
+
+    const seed = await replayHintedState(sandbox);
+    // 采纳清空了 sig-1；只剩采纳之后的 sig-2
+    expect([...(seed.hinted.get('a1') ?? [])]).toEqual(['sig-2']);
+  });
+
+  it('文件不存在 → 空种子（正常路径）', async () => {
+    const seed = await replayHintedState(join(sandbox, 'nope'));
+    expect(seed.hinted.size).toBe(0);
+    expect(seed.lastIntervened.size).toBe(0);
+  });
+
+  it('坏行跳过，不抛错', async () => {
+    const { appendFileSync, mkdirSync } = await import('node:fs');
+    // 直接 append 不会建目录（recordMetric 才会 mkdir），先确保 storages/ 存在
+    mkdirSync(join(sandbox, 'storages'), { recursive: true });
+    appendFileSync(metricsFilePath(sandbox), 'not-json\n{"broken\n', 'utf8');
+    appendFileSync(
+      metricsFilePath(sandbox),
+      `${JSON.stringify({ t: new Date().toISOString(), kind: 'hinted', agent: 'a1', signature: 'ok' })}\n`,
+      'utf8',
+    );
+    const seed = await replayHintedState(sandbox);
+    expect([...(seed.hinted.get('a1') ?? [])]).toEqual(['ok']);
+  });
+});
+
+describe('去重跨重启的端到端行为', () => {
+  /** 用一个指定 state 起一个监听器（模拟一个宿主进程）。 */
+  function listenerOn(state: ReturnType<typeof createInterveneState>) {
+    let listener: ((exec: unknown, result: unknown, next: () => Promise<unknown>) => Promise<unknown>) | undefined;
+    const ctx = {
+      on: (event: string, fn: typeof listener) => {
+        if (event === 'tools/post-execute') listener = fn;
+        return () => {};
+      },
+    };
+    registerIntervener(ctx as never, state, sandbox);
+    return async (exec: unknown, result: unknown) => {
+      if (listener === undefined) throw new Error('listener 未注册');
+      const out = await listener(exec, result, async () => ({ kind: 'accept' }));
+      await new Promise((r) => setTimeout(r, 50));
+      return out;
+    };
+  }
+
+  it('第一轮提示过 → "重启"（新 state）重放后同签名不再提示', async () => {
+    const exec = { name: 'fs_write', agent: { id: 'a1' } };
+    const failure = { isError: true, error: { message: SEM_FAILURE } };
+
+    // —— 宿主进程 A ——
+    const runA = listenerOn(createInterveneState());
+    await runA(exec, failure); // below-threshold
+    const second = (await runA(exec, failure)) as { additionalContexts?: unknown[] };
+    expect(second.additionalContexts?.length).toBe(1); // 真提示了一次
+
+    // —— "重启"：全新内存 state，历史还在文件里 ——
+    const runB = listenerOn(createInterveneState());
+    await new Promise((r) => setTimeout(r, 120)); // 等异步重放灌入
+    const r1 = (await runB(exec, failure)) as { additionalContexts?: unknown[] };
+    const r2 = (await runB(exec, failure)) as { additionalContexts?: unknown[] };
+    expect(r1.additionalContexts ?? []).toHaveLength(0);
+    expect(r2.additionalContexts ?? []).toHaveLength(0);
+
+    // 拦住也要留下记录（漏判分母同样如实）
+    const blocked = readFileSync(metricsFilePath(sandbox), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as { reason?: string })
+      .filter((e) => e.reason === 'already-hinted');
+    expect(blocked.length).toBeGreaterThan(0);
+  });
+
+  it('采纳过的 agent 重启后允许再提示（清空语义跨重启成立）', async () => {
+    const exec = { name: 'fs_write', agent: { id: 'a9' } };
+    const failure = { isError: true, error: { message: SEM_FAILURE } };
+
+    const runA = listenerOn(createInterveneState());
+    await runA(exec, failure);
+    await runA(exec, failure); // hinted
+    // agent 采纳：调 clis_run（记 adopted）
+    await runA({ name: 'clis_run', agent: { id: 'a9' } }, { isError: false });
+
+    // 重放里 adopted 在后 → 该 agent 的去重集为空 → 可再提示
+    const runB = listenerOn(createInterveneState());
+    await new Promise((r) => setTimeout(r, 120));
+    await runB(exec, failure);
+    const again = (await runB(exec, failure)) as { additionalContexts?: unknown[] };
+    expect(again.additionalContexts?.length).toBe(1);
+  });
+
+  it('重放是 merge 不覆盖 live（灌入前的新状态不被历史抹掉）', async () => {
+    // 历史里 a1 在很久以前提示过 sig-old
+    await recordMetric(sandbox, { kind: 'hinted', agent: 'a1', tool: 'fs_write', signature: 'sig-old' });
+
+    // 新进程在重放完成前就介入了一次（live 冷却起点 = 现在）
+    const now = Date.now();
+    const state = createInterveneState();
+    state.lastIntervened.set('a1', now);
+    listenerOn(state);
+    await new Promise((r) => setTimeout(r, 120)); // 重放完成
+
+    // live 的冷却起点没有被历史盖回旧值
+    expect(state.lastIntervened.get('a1')).toBe(now);
+    // 历史的 sig-old 并入了 live（merge 方向正确）
+    expect(state.hinted.get('a1')?.has('sig-old')).toBe(true);
   });
 });

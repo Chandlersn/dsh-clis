@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { getCreateUserMessage } from './cordis-shim';
 import { classifyFailureKind, worthCausalIntervention } from './failure-kind';
-import { recordMetric } from './intervene-metrics';
+import { recordMetric, replayHintedState } from './intervene-metrics';
 
 /**
  * 反馈介入 —— 在 agent **碰到失败反馈的那一刻**递上一把尺子。
@@ -510,6 +510,19 @@ export function stderrDetailOf(result: unknown): string | undefined {
  * waterfall 失败绝不外抛 —— 介入是增强，不是链路的一环。监听器随
  * `ctx.effect` 的返回值在卸载时注销。
  *
+ * ## 启动时重放历史 —— 让去重集跨重启存活（2026-11-02）
+ *
+ * `hinted` 去重与冷却期此前是纯内存态：宿主重启即清空，同一 agent 的
+ * 同一失败会**再提示一次**。真数据抓到实例（重启后约 1 分钟同签名误弹）。
+ * 修复是启动后异步重放 JSONL（`replayHintedState`）灌入初始状态：
+ *
+ * - **merge 而非 overwrite**：种子可能在监听器已处理过几次失败之后才到，
+ *   只并集/只填空位，绝不用历史覆盖 live；
+ * - **fire-and-forget**：重放失败（文件损坏/无权限）等价于"没有历史"，
+ *   最多少一次跨重启去重，绝不阻塞介入器注册；
+ * - 灌入的只是抑制集，不影响新失败的窗口判定（windows 不从历史重建 ——
+ *   10 分钟窗口内的实时重复才是"反复"的定义，跨重启攒窗口反而失真）。
+ *
  * @param ctx 插件上下文（需具备 tools 服务）。
  * @param state 可注入状态；缺省自建。
  * @param dshHome 指标落盘目录；缺省按环境推导（测试注入用）。
@@ -520,6 +533,26 @@ export function registerIntervener(
   state: InterveneState = createInterveneState(),
   dshHome: string = process.env.DSH_HOME ?? join(process.env.USERPROFILE ?? '', '.dsh'),
 ): (() => void) | undefined {
+  // 异步灌入跨重启种子（见上方注释的三条边界）。
+  void replayHintedState(dshHome)
+    .then((seed) => {
+      for (const [agent, signatures] of seed.hinted) {
+        let live = state.hinted.get(agent);
+        if (live === undefined) {
+          live = new Set();
+          state.hinted.set(agent, live);
+        }
+        for (const signature of signatures) live.add(signature);
+      }
+      for (const [agent, at] of seed.lastIntervened) {
+        // 只填空位：live 已有更新的时间（重启后又介入过一次）不被动。
+        if (!state.lastIntervened.has(agent)) state.lastIntervened.set(agent, at);
+      }
+    })
+    .catch(() => {
+      /* 没有历史 = 从空状态开始，与修复前的行为一致，不是错误 */
+    });
+
   const host = ctx as unknown as {
     tools?: {
       on?: (

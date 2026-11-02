@@ -273,3 +273,81 @@ export async function summarizeMetrics(dshHome: string, windowDays = 30): Promis
     windowDays,
   };
 }
+
+/** 重启后重建的抑制状态（与内存语义逐字一致）。 */
+export interface HintedSeed {
+  /** agent → 已提示过的签名集。 */
+  readonly hinted: Map<string, Set<string>>;
+  /** agent → 最近一次介入时间（冷却期起点）。 */
+  readonly lastIntervened: Map<string, number>;
+}
+
+/**
+ * 从既有 JSONL 重放出抑制状态 —— 让 `hinted` 去重跨重启存活。
+ *
+ * ## 为什么用重放而不是新存储（2026-11-02）
+ *
+ * 去重集此前是内存态：宿主一重启就清空，同一失败会**再提示一次**。
+ * 真数据抓到过实例（重启后约 1 分钟，同 agent 同签名 pwsh:exit code # 误弹）。
+ *
+ * 解法不引入第二份账本：**事件流本来就在**（JSONL 是 append-only 事实源），
+ * 重放它与内存语义逐字对齐：
+ *
+ * - `hinted` → 把该 (agent, signature) 加入去重集，并刷新该 agent 的冷却起点
+ * - `adopted` → **整集清空**该 agent 的去重集（= markToolUsed 的语义：
+ *   它真去用 CLIS 了，之后新失败按窗口重新判定）
+ *
+ * 新增一份持久化文件意味着两份真相可能分叉；重放让"事实源只有一个"。
+ *
+ * ## 判据边界
+ *
+ * 冷却起点取该 agent 最近一次 hinted 的**全史**时间（不受汇总窗口裁剪）——
+ * 否则刚重启就撞的失败会把冷却当"没发生过"，连成一串提示。
+ * 采纳的清空同样按全史顺序。坏行跳过（与 summarizeMetrics 一致）。
+ *
+ * @param dshHome 数据目录。
+ * @returns 可直接灌进 InterveneState 的抑制集。
+ */
+export async function replayHintedState(dshHome: string): Promise<HintedSeed> {
+  const path = metricsFilePath(dshHome);
+  const hinted = new Map<string, Set<string>>();
+  const lastIntervened = new Map<string, number>();
+  try {
+    const raw = await readFile(path, 'utf8');
+    let scanned = 0;
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      if (++scanned > 10_000) break;
+      try {
+        const e = JSON.parse(s) as { t?: unknown; kind?: unknown; agent?: unknown; signature?: unknown };
+        const t = Date.parse(String(e.t));
+        if (!Number.isFinite(t)) continue;
+        const agent = typeof e.agent === 'string' ? e.agent : '';
+        if (agent.length === 0) continue;
+        if (e.kind === 'hinted') {
+          if (typeof e.signature === 'string' && e.signature.length > 0) {
+            let set = hinted.get(agent);
+            if (set === undefined) {
+              set = new Set();
+              hinted.set(agent, set);
+            }
+            set.add(e.signature);
+            // 冷却起点：取较晚者（坏时钟防倒退，与 summarizeMetrics 同理由）
+            const prior = lastIntervened.get(agent);
+            if (prior === undefined || t > prior) lastIntervened.set(agent, t);
+          }
+        } else if (e.kind === 'adopted') {
+          // markToolUsed 语义：真去用了 CLIS → 清空该 agent 的去重与冷却。
+          hinted.delete(agent);
+          lastIntervened.delete(agent);
+        }
+      } catch {
+        /* skip corrupt line */
+      }
+    }
+  } catch {
+    /* 文件不存在 = 没有历史，空种子（正常路径，不是错误） */
+  }
+  return { hinted, lastIntervened };
+}
