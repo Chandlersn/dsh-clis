@@ -107,6 +107,11 @@ export class ProbeRegistry {
 const KNOWN_PROBE_KEYS: readonly string[] = [
   'clis.healthProbe',
   'memory.healthProbe',
+  // 2026-11-02: mind 也进白名单 —— 兜底路径。
+  // 首选路径是 mind 主动经 `clis/register-probe` 广播登记（零配合：
+  // 别人不必为 mind 改一行代码）；这里是兜底，覆盖广播事件被漏掉、
+  // 或未装 CLIS 监听器的场合。
+  'mind.healthProbe',
 ];
 
 /**
