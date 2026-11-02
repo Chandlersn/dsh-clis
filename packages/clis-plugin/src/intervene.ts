@@ -442,8 +442,19 @@ export function failureMessageOf(result: unknown): string {
  * 实测两次 `exit 7` 后 `hinted` 计数纹丝不动。而"命令反复跑失败"恰恰是
  * 干预机制最该介入的场景。
  *
- * 判据严格限定在**退出码 ≠ 0**，不碰 stderr、不碰输出文本 ——
- * 与既有洞察「原生命令退出码判据」一致：stderr 是噪音，管道会吞退出码。
+ * 判据**限定在退出码 ≠ 0** —— 与既有洞察「原生命令退出码判据」一致：
+ * 失败**与否**只认退出码，不经管道、不信 stderr。
+ *
+ * ⚠️ 但"是不是失败"与"是哪次失败"是两件事（2026-11-02 真数据修正）：
+ * 本函数返回的 `exit code N` 曾是唯一进入签名的信息，而数字又被归一成
+ * `#` —— 于是**所有退出码失败塌缩成同一个签名** `pwsh:exit code #`。
+ * 真机对照：同一 agent 在 23:07 撞 ConvertFrom-Json 语法错误、
+ * 23:11 撞 Join-String 不存在，两个无关错误被记成"同一失败模式"，
+ * 提示因此说了假话（"这个失败模式已经重复出现"），并且 0 采纳。
+ *
+ * 所以失败**详情**（签名与分类用）从 `value.stderr.text` 取
+ * （宿主 dsh-tool-pwsh 的 foreground 结果带此字段）；退出码仍是
+ * "是不是失败"的唯一判据，stderr 为空时退回 `exit code N`。
  *
  * @param result 工具结果（post-execute 原样给出）。
  * @returns 非零退出码时的失败描述；否则 undefined。
@@ -462,6 +473,25 @@ export function exitCodeFailureOf(result: unknown): string | undefined {
   // 被信号杀掉不算"命令跑失败"：那是另一种故障，且 signal 场景宿主会另行标记。
   if (r.value?.signal !== undefined && r.value?.signal !== null) return undefined;
   return `exit code ${exitCode}`;
+}
+
+/**
+ * 退出码失败的**详情**：取 stderr 正文（若有）。
+ *
+ * 只用于签名与失败性质分类 —— 不参与"是不是失败"的判定，
+ * 那个判据永远只有退出码本身（见上方注释的区分）。
+ *
+ * @param result 工具结果。
+ * @returns stderr 正文；没有则 undefined（调用方退回 exit code 描述）。
+ */
+export function stderrDetailOf(result: unknown): string | undefined {
+  const r = result as {
+    value?: { stderr?: { text?: unknown } };
+  };
+  const text = r?.value?.stderr?.text;
+  if (typeof text !== 'string') return undefined;
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
@@ -571,8 +601,14 @@ export function registerIntervener(
       const tool = typeof e?.name === 'string' ? e.name : 'unknown';
       const agentId = typeof e?.agent?.id === 'string' ? e.agent.id : 'default';
 
-      // 失败描述：isError 走错误消息；非零退出码走退出码描述。
-      const message = exitFailure ?? failureMessageOf(result);
+      // 失败描述：isError 走错误消息；非零退出码走 **stderr 详情**，
+      // 没有 stderr 正文才退回 exit code 描述。
+      //
+      // 这一步修的是真数据里看到的塌缩：`exit code N` 的数字被签名归一
+      // 成 `#` 后，所有退出码失败共用一个签名，"重复出现"的判断说的
+      // 是假话（2026-11-02 真机对照：两个无关错误被记成同一失败模式）。
+      const message =
+        exitFailure !== undefined ? (stderrDetailOf(result) ?? exitFailure) : failureMessageOf(result);
       const outcome = evaluateIntervention(state, agentId, tool, message, Date.now());
 
       // —— 不介入也要记账（2026-11-02 补漏判分母）——

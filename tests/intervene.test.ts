@@ -23,8 +23,20 @@ import {
   hintTextFor,
   markToolUsed,
   shouldIntervene,
+  stderrDetailOf,
 } from '../packages/clis-plugin/src/intervene';
+import { classifyFailureKind } from '../packages/clis-plugin/src/failure-kind';
 import type { HintTone } from '../packages/clis-plugin/src/intervene';
+
+/**
+ * 取退出码失败的详情（喂给纯函数层的消息正文）。
+ *
+ * `code` 刻意不参与：详情层只用 stderr 正文，退出码只回答"是不是失败"
+ * （见 intervene.ts 的分工）。端到端的取值在 metrics 套件另有真实形状用例。
+ */
+function stderrOf(_code: number, text: string): string {
+  return text;
+}
 
 /** 固定时钟起点。 */
 const T0 = 1_700_000_000_000;
@@ -273,6 +285,99 @@ describe('exitCodeFailureOf：非零退出码也算失败（2026-10-30 真机补
     ).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-11-02 真数据修正：签名塌缩
+//
+// `exit code N` 的数字被签名归一成 `#`，于是**所有退出码失败共用一个签名**。
+// 真机对照：同一 agent 23:07 撞 ConvertFrom-Json 语法错误、23:11 撞
+// Join-String 不存在 —— 两个无关错误被记成"同一失败模式"，提示说了假话，
+// 0 采纳。修复：失败**详情**取 stderr 正文（宿主 foreground 结果带此字段），
+// 而"是不是失败"的判据不变，仍只认退出码。
+// ---------------------------------------------------------------------------
+describe('stderrDetailOf：退出码失败的详情（签名/分类用，不判失败）', () => {
+  it('有 stderr 正文 → 原样返回', () => {
+    expect(
+      stderrDetailOf({ isError: false, value: { exitCode: 1, stderr: { text: 'boom happened' } } }),
+    ).toBe('boom happened');
+  });
+
+  it('空串/空白 → undefined（调用方退回 exit code 描述）', () => {
+    expect(
+      stderrDetailOf({ isError: false, value: { exitCode: 1, stderr: { text: '   ' } } }),
+    ).toBeUndefined();
+    expect(
+      stderrDetailOf({ isError: false, value: { exitCode: 1, stderr: { text: '' } } }),
+    ).toBeUndefined();
+  });
+
+  it('形状缺失 → undefined，不抛错', () => {
+    expect(stderrDetailOf({ isError: false, value: { exitCode: 1 } })).toBeUndefined();
+    expect(stderrDetailOf(null)).toBeUndefined();
+    expect(stderrDetailOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('签名塌缩修复：同退出码的不同错误必须有不同签名', () => {
+  // 用今晚真机出现的两个错误原话（PowerShell 错误记录）
+  const JSON_ERR =
+    'ConvertFrom-Json : Invalid object passed in, \':\' or \'}\' expected. (238): { "a": 1 }';
+  const CMDLET_ERR =
+    'The term \'Join-String\' is not recognized as a name of a cmdlet, function, script file, or executable program.';
+
+  it('两个无关的 exit-code-1 错误 → 不同签名（旧实现两者同为 pwsh:exit code #）', () => {
+    const a = failureSignature('pwsh', stderrOf(1, JSON_ERR));
+    const b = failureSignature('pwsh', stderrOf(1, CMDLET_ERR));
+    expect(a).not.toBe(b);
+  });
+
+  it('同一个错误重复两次 → 签名一致（去重仍成立，不是修坏了）', () => {
+    const a = failureSignature('pwsh', stderrOf(1, JSON_ERR));
+    const b = failureSignature('pwsh', stderrOf(1, JSON_ERR));
+    expect(a).toBe(b);
+  });
+
+  it('真实分类核对：cmdlet 不存在归 MECH，JSON 解析错误归 SEM（不凭想象写断言）', () => {
+    // 'Join-String is not recognized as a name of a cmdlet' 命中 MECH 模式。
+    expect(classifyFailureKind('pwsh', CMDLET_ERR)).toBe('MECH');
+    // JSON 错误不匹配任何 MECH/INFRA 模式（'Invalid object' ≠ 'Invalid arguments'），
+    // 按分类器"拿不准归 SEM，宁可多说"的设计落 SEM —— 断言以实测为准。
+    expect(classifyFailureKind('pwsh', JSON_ERR)).toBe('SEM');
+  });
+
+  it('无 stderr 时退回 exit code 描述（不猜详情）', () => {
+    expect(stderrDetailOf({ isError: false, value: { exitCode: 2 } })).toBeUndefined();
+    // 退回后的签名与旧行为一致 —— 增强失败时降级，不改变既有语义
+    expect(failureSignature('pwsh', 'exit code 2')).toBe('pwsh:exit code #');
+  });
+
+  it('真实分类核对：cmdlet 不存在归 MECH，JSON 解析错误归 SEM（不凭想象写断言）', () => {
+    // 'Join-String is not recognized as a name of a cmdlet' 命中 MECH 模式。
+    expect(classifyFailureKind('pwsh', CMDLET_ERR)).toBe('MECH');
+    // JSON 错误不匹配任何 MECH/INFRA 模式（'Invalid object' ≠ 'Invalid arguments'），
+    // 按分类器"拿不准归 SEM，宁可多说"的设计落 SEM —— 断言以实测为准。
+    expect(classifyFailureKind('pwsh', JSON_ERR)).toBe('SEM');
+  });
+
+  it('闸门端到端：两个无关的 stderr 错误各自 below-threshold，不再互相顶到阈值', () => {
+    const state = createInterveneState();
+    const r1 = shouldIntervene(state, 'a1', 'pwsh', JSON_ERR, T0);
+    const r2 = shouldIntervene(state, 'a1', 'pwsh', CMDLET_ERR, T0 + 1000);
+    // 修复前的形态：两者签名同为 pwsh:exit code # —— r2 会把窗口顶到阈值，
+    // 于是提示宣称"这个失败模式已经重复出现"（假话）。
+    // 修复后：签名不同，各自只出现 1 次，都不该触发。
+    expect(r1).toBeUndefined();
+    expect(r2).toBeUndefined();
+  });
+
+  it('闸门端到端：真正反复出现的 SEM 错误仍触发（修复没把有用的拦掉）', () => {
+    const state = createInterveneState();
+    const sem = 'AssertionError: expected 3 to equal 5';
+    expect(shouldIntervene(state, 'a1', 'pwsh', stderrOf(1, sem), T0)).toBeUndefined();
+    expect(shouldIntervene(state, 'a1', 'pwsh', stderrOf(1, sem), T0 + 1000)).toBeDefined();
+  });
+});
+
 
 describe('failureSignature：去重键的稳定性', () => {
   it('数字归一：路径里的 id/行号不影响归类', () => {

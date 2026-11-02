@@ -618,4 +618,45 @@ describe('漏判分母：每次评估都要留下原因', () => {
     expect(s.skipped).toBe(3);
     expect(s.missRate).toBe(1);
   });
+
+  // —— 2026-11-02 真数据修正的端到端面：签名不再塌缩 ——
+  it('两个无关的 exit-code 错误（完整宿主结果形状）→ 不同签名、不误报重复', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    const exec = { name: 'pwsh', agent: { id: 'a1' } };
+    // 今晚真机原样：isError=false（退出码失败报成成功），stderr 带正文
+    const r1 = {
+      isError: false,
+      value: { exitCode: 1, stderr: { text: 'ConvertFrom-Json : Invalid object passed in' } },
+    };
+    const r2 = {
+      isError: false,
+      value: { exitCode: 1, stderr: { text: 'The term Join-String is not recognized' } },
+    };
+    await run(exec, r1);
+    await run(exec, r2);
+
+    const skipped = readFileSync(metricsFilePath(sandbox), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as { kind?: string; signature?: string })
+      .filter((e) => e.kind === 'skipped');
+    expect(skipped.length).toBe(2);
+    // 关键断言：两条记录的签名**不同** —— 旧实现这里两条都是 pwsh:exit code #
+    expect(skipped[0]!.signature).not.toBe(skipped[1]!.signature);
+  });
+
+  it('stderr 缺失时退回 exit code 描述（降级不猜）', async () => {
+    const { ctx, run } = ctxWithListener();
+    registerIntervener(ctx as never, createInterveneState(), sandbox);
+
+    await run({ name: 'pwsh', agent: { id: 'a1' } }, { isError: false, value: { exitCode: 3 } });
+
+    const lines = readFileSync(metricsFilePath(sandbox), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as { signature?: string });
+    expect(lines[0]!.signature).toBe('pwsh:exit code #');
+  });
 });
